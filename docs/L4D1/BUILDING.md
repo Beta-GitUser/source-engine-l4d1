@@ -140,6 +140,7 @@ you to set the variable.
 | link error mentioning `gnustl_static` | NDK too new for the hardcoded gnu-libstdc++ paths |
 | `undefined reference to 'glGenFramebuffers'` / `AAsset_seek64` | linking `libSDL2.so` without `-lGLESv2 -landroid`; `xcompile.py` now adds the Android platform libs |
 | `Unknown NDK revision: 27` | an inherited NDK won; the script now rejects unsupported revisions and fetches `NDK_VERSION` |
+| `undefined reference to 'fprintf@LIBC'` / `read@LIBC` | the prebuilt SDL2 was linked against a differently versioned libc stub; `xcompile.py` now passes `-Wl,--allow-shlib-undefined` (the device's libc resolves them at runtime). The real fix is rebuilding SDL2 for this NDK |
 | `-lSDL2` / `libSDL2.so` missing | SDL2 in `lib/android/<arch>/` is not populated for this tree |
 | `Exec format error` on device | binary and module came from different arches — `l4d1ctl inspect` both |
 | `Unable to load client DLL` on device | modules not beside the engine, or `lib` prefix missing |

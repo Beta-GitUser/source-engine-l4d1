@@ -359,6 +359,14 @@ def configure(conf):
 		# only a missing -l.
 		conf.env.LDFLAGS += ['-lGLESv2', '-landroid', '-llog', '-lOpenSLES']
 
+		# The SDL2 in lib/android/<abi>/ is a prebuilt that was linked against a
+		# different libc stub: its symbols are versioned (fprintf@LIBC, read@LIBC,
+		# tan@LIBC) and the NDK's libc does not export those version tags, so the
+		# link stops on them. They *are* resolved at runtime by the device's libc,
+		# so allow them to stay undefined in shared-library dependencies instead
+		# of rebuilding SDL2. Undefined symbols in our own objects still fail.
+		conf.env.LDFLAGS += ['-Wl,--allow-shlib-undefined']
+
 		conf.env.HAVE_M = True
 		if android.is_hardfp():
 			conf.env.LIB_M = ['m_hard']
