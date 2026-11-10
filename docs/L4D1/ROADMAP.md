@@ -41,7 +41,14 @@ Work:
 Exit criterion: engine reaches the main menu loop and `map <name>` fails inside
 map/game-code init rather than in the file system.
 
-## Phase 2 — A walkable L4D1 map (sandbox game code) · next
+## Phase 2 — A walkable L4D1 map (sandbox game code) · started
+
+**2a (done, bootstrap).** `--build-games left4dead` compiles the HL2 game code
+into `game/left4dead/bin`; `l4d1ctl module install/status` moves and inspects
+modules. Map hosting + walking/jumping works, L4D-specific entities are skipped
+with a warning (see [GAMECODE.md](GAMECODE.md)).
+
+**2b (next).** Replace the bootstrap with our own player:
 
 Build `game/client` + `game/server` targets (`left4dead_client`,
 `left4dead_server`) from the existing shared/HL2 sources, i.e. the smallest game

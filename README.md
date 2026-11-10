@@ -82,6 +82,8 @@ Start here:
 - [`docs/L4D1/FEASIBILITY.md`](docs/L4D1/FEASIBILITY.md) - what works, what
   blocks, and the legal boundaries.
 - [`docs/L4D1/ROADMAP.md`](docs/L4D1/ROADMAP.md) - phases and exit criteria.
+- [`docs/L4D1/GAMECODE.md`](docs/L4D1/GAMECODE.md) - map hosting and walking
+  today (HL2 bootstrap module), and how L4D map intros actually work.
 - [`docs/L4D1/LAUNCHER.md`](docs/L4D1/LAUNCHER.md) - launcher reference.
 
 Launcher quick start (needs your own Steam copy, no content is bundled):

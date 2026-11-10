@@ -27,6 +27,7 @@ Motivation and limits (what this can and cannot do about Steam, and why):
 | `depot.py` | content import, `steamcmd`/`DepotDownloader` drivers, archives, verification |
 | `mods.py` | mod manifests, enable/disable, ordering, staging into `mods/enabled` |
 | `vpk.py` | read-only VPK (v1/v2) parser: listing, extraction, CRC and part checks |
+| `gamemod.py` | game module discovery/install into `<gamedir>/bin`, ELF/PE header inspection |
 | `gameinfo.py` | generated `gameinfo.txt` with the mods search path |
 | `launch.py` | engine argv, env, generated identity cfg |
 | `doctor.py` | read-only environment checks |

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from . import depot, gameinfo, mods, steamlib
+from . import depot, gameinfo, gamemod, mods, steamid, steamlib
 from .paths import PortPaths
 
 
@@ -113,6 +113,18 @@ def run(paths: PortPaths, *, steam_root: Optional[str] = None,
     depotdownloader = _which(("DepotDownloader", "depotdownloader"))
     if depotdownloader:
         results.append(Result("ok", "DepotDownloader available", depotdownloader))
+
+    # -- game module ------------------------------------------------------
+    module_status = gamemod.status(paths)
+    if module_status.ok:
+        names = ", ".join(f"{n} ({m.info.summary})" for n, m in sorted(module_status.modules.items()))
+        results.append(Result("ok", "game module installed", names))
+    else:
+        results.append(Result("warn", "no complete game module in " + str(module_status.bindir),
+                              "run `l4d1ctl module install --from <build>/bin`"))
+    for warning in module_status.warnings:
+        if module_status.ok:
+            results.append(Result("warn", f"game module: {warning}"))
 
     # -- engine -----------------------------------------------------------
     engine_candidates = [

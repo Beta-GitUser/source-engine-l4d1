@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from . import depot, doctor, gameinfo, launch, mods, steamid, steamlib, vpk
+from . import depot, doctor, gameinfo, gamemod, launch, mods, steamid, steamlib, vpk
 from .paths import PortPaths, resolve_gamedir
 
 
@@ -298,6 +298,68 @@ def cmd_mod(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_module(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+
+    if args.action == "status":
+        module_status = gamemod.status(paths)
+        if args.json:
+            print(json.dumps(module_status.to_dict(), indent=2))
+            return 0 if module_status.ok else 1
+        print(f"module dir: {module_status.bindir}")
+        if not module_status.modules:
+            print("  (nothing installed)")
+        for name, module in sorted(module_status.modules.items()):
+            link = f" -> {module.link_target}" if module.link_target else ""
+            print(f"  {name:<8} {module.path.name:<18} {module.size / 1024:9.1f} KiB  "
+                  f"{module.info.summary}{link}")
+        for missing in module_status.missing:
+            print(f"  missing: {missing}")
+        for warning in module_status.warnings:
+            print(f"  note: {warning}")
+        return 0 if module_status.ok else 1
+
+    if args.action == "install":
+        args.source = args.source_opt or args.source
+        if not args.source:
+            print("install needs --from <dir with client/server modules>", file=sys.stderr)
+            return 2
+        source = Path(args.source).expanduser()
+        if not source.is_dir():
+            print(f"module source does not exist: {source}", file=sys.stderr)
+            return 2
+
+        if args.dry_run:
+            print(f"source: {source}")
+            for line in gamemod.describe_source(source):
+                print(f"  {line}")
+            print(f"target: {paths.bindir}")
+
+        result = gamemod.install_modules(
+            source, paths, link=args.link, force=args.force,
+            install_all=args.all, dry_run=args.dry_run,
+        )
+        for name in result.installed:
+            print(("would install " if args.dry_run else "installed ") + name)
+        for name in result.unchanged:
+            print(f"already in place {name}")
+        for warning in result.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        print(result.summary())
+        return 0 if not any("will not start" in w for w in result.warnings) else 1
+
+    if args.action == "remove":
+        removed = gamemod.remove_modules(paths, dry_run=args.dry_run, names=args.names)
+        for name in removed:
+            print(("would remove " if args.dry_run else "removed ") + name)
+        if not removed:
+            print("nothing to remove")
+        return 0
+
+    print(f"unknown action {args.action}", file=sys.stderr)
+    return 2
+
+
 def cmd_vpk(args: argparse.Namespace) -> int:
     target = Path(args.path).expanduser()
     if not target.exists():
@@ -516,6 +578,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-sync", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_mod)
+
+    p = sub.add_parser("module", help="install / inspect the game module (client + server)")
+    p.add_argument("action", choices=("status", "install", "remove"))
+    p.add_argument("source", nargs="?", help="value for `--from` (deprecated positional)")
+    p.add_argument("--from", dest="source_opt", help="build output dir, e.g. game/hl2/bin")
+    p.add_argument("--link", action="store_true", help="hardlink instead of copy")
+    p.add_argument("--force", action="store_true", help="replace existing module files")
+    p.add_argument("--all", action="store_true", help="also copy non-module binaries")
+    p.add_argument("--names", nargs="*", help="module names to remove (default: all)")
+    p.add_argument("--json", action="store_true", help="machine-readable `status`")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_module)
 
     p = sub.add_parser("vpk", help="inspect mod VPK packs")
     p.add_argument("action", choices=("info", "list", "check", "extract"))

@@ -173,6 +173,18 @@ class CliTests(unittest.TestCase):
             self.assertIn("[PASS]", out)
             self.assertIn(code, (0, 1, 2))
 
+    def test_doctor_with_steam_account(self):
+        from l4d1ctl.tests.test_steamlib import make_steam_root
+
+        with tempfile.TemporaryDirectory() as tmp:
+            steam_root = make_steam_root(Path(tmp) / "steam")
+            gamedir = prepare(Path(tmp) / "game")
+            code, out, _ = run(["--gamedir", str(gamedir), "--steam-root", str(steam_root),
+                                "doctor"])
+            self.assertIn("local account: Zoey Fan", out)
+            self.assertIn("[U:1:", out)
+            self.assertIn(code, (0, 1, 2))
+
     def test_launch_print_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             gamedir = prepare(Path(tmp))

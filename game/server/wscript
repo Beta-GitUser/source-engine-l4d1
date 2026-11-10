@@ -17,6 +17,11 @@ games = {
 	'hl1mp': ['server_base.vpc', 'server_hl1mp.vpc'],
 	'cstrike': ['server_base.vpc', 'server_cstrike.vpc', 'nav_mesh.vpc'],
 	'dod': ['server_base.vpc', 'server_dod.vpc'],
+	# Bootstrap only: builds the HL2 game code and installs it into
+	# game/left4dead/bin, so the engine boots with L4D1 assets while the real
+	# L4D game module is being written (see docs/L4D1/GAMECODE.md). Movement,
+	# physics and map hosting come from HL2; L4D-specific entities are skipped.
+	'left4dead': ['server_base.vpc', 'server_hl2.vpc'],
 	'tf': [
 		'server_base.vpc',
 		'server_econ_base.vpc',

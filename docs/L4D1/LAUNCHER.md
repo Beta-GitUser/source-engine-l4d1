@@ -144,6 +144,19 @@ you.
 entitlements. Attempting to fake tickets is technically useless against Valve's
 backend and would put the account at risk; see FEASIBILITY.md §3–§5.
 
+### Game module
+
+```sh
+python3 -m l4d1ctl module status                 # what is in <gamedir>/bin
+python3 -m l4d1ctl module install --from game/hl2/bin --dry-run
+python3 -m l4d1ctl module install --from game/hl2/bin --link
+python3 -m l4d1ctl module remove                 # engine will not start after this
+```
+
+`status --json` reports each module's ELF format (bits/machine/kind) so an
+architecture mismatch is visible before the engine fails at `LoadModule`.
+Details and the gameplay side: [GAMECODE.md](GAMECODE.md).
+
 ### Launch, status, diagnostics
 
 ```sh

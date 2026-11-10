@@ -8,6 +8,7 @@ This folder is the working documentation for running **Left 4 Dead 1** (appid
 | [FEASIBILITY.md](FEASIBILITY.md) | What already works in this engine, what blocks L4D1, and which parts of the retail game cannot legally be reused. Read this before promising anyone a port. |
 | [ROADMAP.md](ROADMAP.md) | The order of work: launcher → asset loading → walkable maps → co-op skeleton → Director. Each phase has an exit criterion. |
 | [LAUNCHER.md](LAUNCHER.md) | The launcher that exists today: `l4d1ctl` (content fetching, mods, identity) and `launcher/portcore` (the C++ side that runs on the phone). |
+| [GAMECODE.md](GAMECODE.md) | The game module: how map hosting and walking work today via the HL2 bootstrap, what L4D entities get skipped and why that is safe, and how map intro cutscenes are built. |
 
 ## Short version
 
@@ -35,6 +36,10 @@ python3 -m l4d1ctl init                         # write gameinfo.txt + mods/
 python3 -m l4d1ctl identity --avatar             # name / SteamID64 / avatar
 python3 -m l4d1ctl mod add ~/Downloads/some_mod  # enable a mod, staged + ordered
 python3 -m l4d1ctl launch --print                # show the engine command line
+
+# game module: host a map and walk on it with the HL2 bootstrap module
+./waf configure -T release --build-games left4dead && ./waf build
+python3 -m l4d1ctl module status                 # what is in left4dead/bin?
 ```
 
 On Android the shell wrapper is not used; the Java activity passes its extra

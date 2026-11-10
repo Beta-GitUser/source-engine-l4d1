@@ -12,6 +12,7 @@ __all__ = [
     "depot",
     "doctor",
     "gameinfo",
+    "gamemod",
     "kv",
     "launch",
     "mods",

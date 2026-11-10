@@ -48,6 +48,11 @@ class PortPaths:
         return self.gamedir / "gameinfo.txt"
 
     @property
+    def bindir(self) -> Path:
+        """Where the engine looks for the game module (GAMEBIN)."""
+        return self.gamedir / "bin"
+
+    @property
     def cfg_dir(self) -> Path:
         return self.gamedir / "cfg"
 

@@ -19,7 +19,10 @@ games = {
 	'portal': ['client_base.vpc', 'client_portal.vpc'],
 	'hl1mp': ['client_base.vpc', 'client_hl1mp.vpc'],
 	'cstrike': ['client_base.vpc', 'client_cstrike.vpc'],
-	'dod': ['client_base.vpc', 'client_dod.vpc']
+	'dod': ['client_base.vpc', 'client_dod.vpc'],
+	# Bootstrap only: HL2 client code installed into game/left4dead/bin.
+	# See docs/L4D1/GAMECODE.md.
+	'left4dead': ['client_base.vpc', 'client_hl2.vpc']
 }
 
 def configure(conf):
