@@ -47,6 +47,26 @@ ETH: `0x5d0D561146Ed758D266E59B56e85Af0b03ABAF46`
 
 XMR: `48iXvX61MU24m5VGc77rXQYKmoww3dZh6hn7mEwDaLVTfGhyBKq2teoPpeBq6xvqj4itsGh6EzNTzBty6ZDDevApCFNpsJ`
 
+## Continuous integration
+
+Actions minutes are opt-in on this fork, because private-repo minutes are not
+free and the engine matrix is 11 build jobs:
+
+| Workflow | Manual | On push / pull request |
+| --- | --- | --- |
+| Tooling tests (`.github/workflows/tooling.yml`) - launcher tooling, ~40s | always | only if the repo variable `L4D1_TOOLING_CI` is `true`, and only when tooling paths changed |
+| Build / Tests - full engine matrix, expensive | always | only if the repo variable `L4D1_CI_ON_PUSH` is `true` |
+
+Variables live in **Settings -> Secrets and variables -> Actions -> Variables**.
+Leave them unset and pushes trigger nothing that costs runner time.
+
+```sh
+gh workflow run "Tooling tests"                 # manual, current branch
+gh workflow run Build                           # full matrix, when you mean it
+scripts/test-tooling.sh                         # or just run it locally
+scripts/test-tooling.sh cpp                     # one suite only
+```
+
 # Left 4 Dead 1 port
 
 This fork targets Left 4 Dead 1 (appid 500). Status first, promises second:

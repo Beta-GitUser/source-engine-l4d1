@@ -1,9 +1,36 @@
 name: Build
 
-on: [push, pull_request]
+# Engine builds are the expensive part of this repo, especially on a private
+# repository where every runner minute is billed. Automatic runs are therefore
+# opt-in:
+#
+#   * workflow_dispatch  - run manually from the Actions tab, or
+#                          `gh workflow run Build --ref <branch>`
+#   * push / pull_request - only when the repository variable L4D1_CI_ON_PUSH
+#                          is set to `true` (Settings -> Secrets and variables ->
+#                          Actions -> Variables). Unset means automatic runs are
+#                          skipped immediately and cost no runner minutes.
+#
+# This is a full matrix on purpose (11 targets). If you only need one platform,
+# run the corresponding scripts/*.sh locally instead of spending minutes here.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-linux-i386:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -13,6 +40,7 @@ jobs:
         scripts/build-ubuntu-i386.sh
 
   build-linux-amd64:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: ubuntu-20.04
 
     steps:
@@ -22,6 +50,7 @@ jobs:
         scripts/build-ubuntu-amd64.sh
 
   build-android-armv7a:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: ubuntu-20.04
 
     steps:
@@ -31,6 +60,7 @@ jobs:
         scripts/build-android-armv7a.sh
 
   build-windows-i386:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: windows-2019
 
     steps:
@@ -42,6 +72,7 @@ jobs:
         ./waf.bat build
 
   build-windows-amd64:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: windows-2019
 
     steps:
@@ -53,6 +84,7 @@ jobs:
         ./waf.bat build
 
   build-dedicated-windows-i386:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: windows-2019
 
     steps:
@@ -64,6 +96,7 @@ jobs:
         ./waf.bat build
 
   build-dedicated-windows-amd64:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: windows-2019
 
     steps:
@@ -75,6 +108,7 @@ jobs:
         ./waf.bat build
 
   build-dedicated-linux-i386:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: ubuntu-20.04
 
     steps:
@@ -84,6 +118,7 @@ jobs:
         scripts/build-ubuntu-i386.sh -d
 
   build-dedicated-linux-amd64:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: ubuntu-20.04
 
     steps:
@@ -93,6 +128,7 @@ jobs:
         scripts/build-ubuntu-amd64.sh -d
 
   build-macos-amd64:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: macos-latest
 
     steps:
@@ -102,6 +138,7 @@ jobs:
         scripts/build-macos-amd64.sh
 
   build-dedicated-macos-amd64:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
     runs-on: macos-latest
 
     steps:

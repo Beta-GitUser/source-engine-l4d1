@@ -1,0 +1,103 @@
+name: Tooling tests
+
+# Engine-free checks: the launcher tooling (python) and launcher/portcore (c++).
+# A full run takes seconds; it never builds the engine and needs no submodules.
+#
+# Trigger policy, designed to not burn private-repo minutes:
+#   * workflow_dispatch  - always available: Actions tab, or
+#                          `gh workflow run "Tooling tests"` / `--ref <branch>`
+#   * push / pull_request - only when the repository variable L4D1_TOOLING_CI
+#                          is set to `true`
+#                          (Settings -> Secrets and variables -> Actions ->
+#                          Variables tab) AND only for tooling paths below.
+#   * By default (variable unset) pushes trigger a run whose single job is
+#     skipped immediately, costing no runner minutes.
+#
+# Run it locally instead of using Actions at all:
+#   scripts/test-tooling.sh            # everything
+#   scripts/test-tooling.sh python     # l4d1ctl only
+#   scripts/test-tooling.sh cpp        # portcore only
+
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: Which suites to run
+        type: choice
+        options:
+          - all
+          - python
+          - cpp
+        default: all
+      python-version:
+        description: Python version for the l4d1ctl suite
+        type: string
+        default: "3.11"
+      quiet:
+        description: Only show the test summary, not every test name
+        type: boolean
+        default: false
+
+  push:
+    paths:
+      - "l4d1ctl/**"
+      - "launcher/portcore/**"
+      - "launcher/android/main.cpp"
+      - "scripts/test-tooling.sh"
+      - "scripts/test-portcore.sh"
+      - ".github/workflows/tooling.yml"
+
+  pull_request:
+    paths:
+      - "l4d1ctl/**"
+      - "launcher/portcore/**"
+      - "launcher/android/main.cpp"
+      - "scripts/test-tooling.sh"
+      - "scripts/test-portcore.sh"
+      - ".github/workflows/tooling.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tooling-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tooling:
+    # Manual runs always go; automatic ones need the repository variable.
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_TOOLING_CI == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      SUITES: ${{ inputs.suites || 'all' }}
+      QUIET: ${{ inputs.quiet || 'false' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: env.SUITES != 'cpp'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version || '3.11' }}
+
+      - name: Report configuration
+        run: |
+          {
+            echo "### Tooling tests"
+            echo ""
+            echo "| setting | value |"
+            echo "| --- | --- |"
+            echo "| suites | \`${SUITES}\` |"
+            echo "| python | \`${{ inputs.python-version || '3.11' }}\` |"
+            echo "| triggered by | \`${{ github.event_name }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compiler version (cpp suite)
+        if: env.SUITES != 'python'
+        run: ${CXX:-c++} --version | head -1
+
+      - name: Run tooling tests
+        run: scripts/test-tooling.sh "$SUITES"
