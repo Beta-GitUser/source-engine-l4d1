@@ -85,6 +85,10 @@ Start here:
 - [`docs/L4D1/GAMECODE.md`](docs/L4D1/GAMECODE.md) - map hosting and walking
   today (HL2 bootstrap module), and how L4D map intros actually work.
 - [`docs/L4D1/LAUNCHER.md`](docs/L4D1/LAUNCHER.md) - launcher reference.
+- [`docs/L4D1/BUILDING.md`](docs/L4D1/BUILDING.md) - where the build actually
+  happens (CI: the NDK has no arm64 host package, so the phone cannot build it).
+- [`docs/L4D1/TESTING.md`](docs/L4D1/TESTING.md) - testing a download and a
+  launch without Steam, content or a compiler.
 
 Launcher quick start (needs your own Steam copy, no content is bundled):
 
@@ -97,13 +101,23 @@ python3 -m l4d1ctl mod add ./mymod    # mod manager, load-ordered
 python3 -m l4d1ctl launch --print     # engine command line
 ```
 
+Building for Android needs an x86_64 host, so it runs in CI:
+
+```sh
+gh workflow run "Android build"                        # arm64 by default
+gh run download <run-id> -n android-aarch64-libraries  # libclient.so, libserver.so, ...
+python3 -m l4d1ctl inspect out/libclient.so            # ELF 64-bit AArch64 ... VClient017
+```
+
+See [`docs/L4D1/BUILDING.md`](docs/L4D1/BUILDING.md).
+
 On device, `launcher/android/main.cpp` reads `$APP_DATA_PATH/port.cfg`
 (see [`launcher/port.cfg.example`](launcher/port.cfg.example)).
 
 Tooling tests do not need the engine build:
 
 ```sh
-scripts/test-tooling.sh   # 226 python tests + 67 C++ checks
+scripts/test-tooling.sh   # 236 python tests + 67 C++ checks
 ```
 
 # Fork note

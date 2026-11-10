@@ -207,7 +207,12 @@ adb pull /sdcard/srceng/left4dead/l4d1_port/logs/     # engine logs, crash dumps
 
 If the phone has no Python, run `check` on the PC against the staged folder and
 declare the target architecture (`L4D1_TARGET_MACHINE=aarch64`); everything it
-inspects is on disk, so the verdict is the same.
+inspects is on disk, so the verdict is the same. Android ABI names work too:
+`L4D1_TARGET_MACHINE=arm64-v8a`.
+
+That is the normal case here, not the exception: the NDK is an x86_64 host
+toolchain, so the arm64 build comes from CI and is verified from a host. See
+[BUILDING.md](BUILDING.md).
 
 ---
 
@@ -216,7 +221,8 @@ inspects is on disk, so the verdict is the same.
 | You changed | Minimum |
 | --- | --- |
 | anything in `l4d1ctl/` | `scripts/test-tooling.sh` |
-| `game/*/wscript`, game code | build, `module install`, `check`, `launch --run --map c1m1_hotel` |
+| `game/*/wscript`, game code | `gh workflow run "Android build"`, `inspect` the artifact, `check`, `launch --run --map c1m1_hotel` |
+| `scripts/build-android.sh`, workflow YAML | a manual `Android build` run; read `build/config.log` from the logs artifact |
 | `launcher/portcore`, `launcher.cpp` | `scripts/test-portcore.sh`, then a real launch |
 | `gameinfo.txt` / mods | `check`, then `launch --run` with a mod enabled and disabled |
 | VPK handling | `selftest --stage vpk`, `vpk --verify-crc`, then a real pack |

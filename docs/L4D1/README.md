@@ -8,6 +8,7 @@ This folder is the working documentation for running **Left 4 Dead 1** (appid
 | [FEASIBILITY.md](FEASIBILITY.md) | What already works in this engine, what blocks L4D1, and which parts of the retail game cannot legally be reused. Read this before promising anyone a port. |
 | [ROADMAP.md](ROADMAP.md) | The order of work: launcher → asset loading → walkable maps → co-op skeleton → Director. Each phase has an exit criterion. |
 | [LAUNCHER.md](LAUNCHER.md) | The launcher that exists today: `l4d1ctl` (content fetching, mods, identity) and `launcher/portcore` (the C++ side that runs on the phone). |
+| [BUILDING.md](BUILDING.md) | Where the build happens and why the phone cannot do it: the NDK is an x86_64 host toolchain, so arm64 builds come from GitHub Actions as artifacts. |
 | [TESTING.md](TESTING.md) | How to test a download and a launch without Steam or content: `selftest`, `check`, `launch --run` and what each engine error means. |
 | [GAMECODE.md](GAMECODE.md) | The game module: how map hosting and walking work today via the HL2 bootstrap, what L4D entities get skipped and why that is safe, and how map intro cutscenes are built. |
 

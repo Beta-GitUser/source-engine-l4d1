@@ -16,7 +16,7 @@ Deliverables:
   `doctor`/`status`.
 * `launcher/portcore` (C++, no engine dependencies): `port.cfg` parser and argv
   builder, wired into `launcher/android/main.cpp`.
-* Tests: 226 Python tests + 67 C++ checks, runnable without the engine build
+* Tests: 236 Python tests + 67 C++ checks, runnable without the engine build
   (`scripts/test-tooling.sh`) and in CI.
 
 Exit criterion: `l4d1ctl doctor` reports a verified game directory, `l4d1ctl
@@ -53,6 +53,12 @@ it is testable on its own: `l4d1ctl check` predicts a launch failure from the
 files on disk, `l4d1ctl launch --run` captures the engine log and explains it,
 and `l4d1ctl selftest` rehearses every pipeline against a synthetic install
 (see [TESTING.md](TESTING.md)).
+
+**Blocker to be honest about:** game code has to be compiled, and the NDK is an
+x86_64 host toolchain - the phone cannot build it and neither can a machine
+without a working Linux install. `Android build` (`.github/workflows/android.yml`)
+produces arm64 modules as downloadable artifacts, so the loop is
+push -> CI -> download -> `module install`. See [BUILDING.md](BUILDING.md).
 
 **2b (next).** Replace the bootstrap with our own player:
 

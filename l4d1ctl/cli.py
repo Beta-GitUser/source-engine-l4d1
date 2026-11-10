@@ -304,8 +304,84 @@ def cmd_mod(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_inspect(args: argparse.Namespace) -> int:
+    """Report what a binary actually is: format, architecture, interfaces.
+
+    Answers "what did the build machine just produce?" - run it on an artifact
+    before installing anything on the device.
+    """
+    payload = []
+    status = 0
+    for name in args.files:
+        path = Path(name).expanduser()
+        if not path.is_file():
+            print(f"no such file: {path}", file=sys.stderr)
+            status = 1
+            continue
+        info = gamemod.inspect_binary(path)
+        interfaces = preflight.interface_versions(path)
+        payload.append({
+            "path": str(path),
+            "size": path.stat().st_size,
+            "format": info.format,
+            "bits": info.bits,
+            "machine": info.machine,
+            "kind": info.kind,
+            "interfaces": interfaces,
+        })
+        if args.json:
+            continue
+        extra = ""
+        if interfaces:
+            extra = "  " + ", ".join(
+                f"{key}{version}" for key, versions in sorted(interfaces.items())
+                for version in versions
+            )
+        print(f"{path.name:<20} {info.summary}{extra}")
+        if info.format == "unknown":
+            print("  note: no ELF/PE/Mach-O header - a text file or a stub?")
+    if args.json:
+        print(json.dumps({"files": payload}, indent=2))
+    return status
+
+
 def cmd_module(args: argparse.Namespace) -> int:
     paths = _paths(args)
+
+    if args.action == "inspect":  # pragma: no cover - kept for internal callers
+        payload = []
+        status = 0
+        for name in args.files:
+            path = Path(name).expanduser()
+            if not path.is_file():
+                print(f"no such file: {path}", file=sys.stderr)
+                status = 1
+                continue
+            info = gamemod.inspect_binary(path)
+            interfaces = preflight.interface_versions(path)
+            entry = {
+                "path": str(path),
+                "size": path.stat().st_size,
+                "format": info.format,
+                "bits": info.bits,
+                "machine": info.machine,
+                "kind": info.kind,
+                "interfaces": interfaces,
+            }
+            payload.append(entry)
+            if not args.json:
+                extra = ""
+                if interfaces:
+                    extra = "  " + ", ".join(
+                        f"{key}{version}" for key, versions in sorted(interfaces.items())
+                        for version in versions
+                    )
+                print(f"{path.name:<20} {info.summary}{extra}")
+                if info.format == "unknown":
+                    print("  note: no ELF/PE/Mach-O header - a text file or a stub?")
+        if args.json:
+            print(json.dumps({"files": payload}, indent=2))
+        return status
 
     if args.action == "status":
         module_status = gamemod.status(paths)
@@ -326,7 +402,7 @@ def cmd_module(args: argparse.Namespace) -> int:
         return 0 if module_status.ok else 1
 
     if args.action == "install":
-        args.source = args.source_opt or args.source
+        args.source = args.source_opt or getattr(args, "source", None)
         if not args.source:
             print("install needs --from <dir with client/server modules>", file=sys.stderr)
             return 2
@@ -684,7 +760,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("module", help="install / inspect the game module (client + server)")
     p.add_argument("action", choices=("status", "install", "remove"))
-    p.add_argument("source", nargs="?", help="value for `--from` (deprecated positional)")
     p.add_argument("--from", dest="source_opt", help="build output dir, e.g. game/hl2/bin")
     p.add_argument("--link", action="store_true", help="hardlink instead of copy")
     p.add_argument("--force", action="store_true", help="replace existing module files")
@@ -704,6 +779,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--verify-crc", nargs="*", default=[], help="entries to CRC check")
     p.add_argument("--max-crc", type=int, default=20)
     p.set_defaults(func=cmd_vpk)
+
+    p = sub.add_parser("inspect", help="identify ELF/PE files (format, arch, interfaces)")
+    p.add_argument("files", nargs="+", help="binaries to inspect")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_inspect)
 
     p = sub.add_parser("check", help="will the launch work? (no launching, no Steam)")
     p.add_argument("--engine", default=launch.DEFAULT_ENGINE)

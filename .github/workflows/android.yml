@@ -1,0 +1,175 @@
+name: Android build
+
+# The build machine you probably do not have.
+#
+# Google ships the Android NDK for x86_64 hosts only, so an arm64 phone cannot
+# compile this engine, and a machine without a working Linux install cannot
+# either. GitHub's runners are x86_64 Linux with an Android toolchain, which
+# makes them the cheapest available way to produce an arm64 build. See
+# docs/L4D1/BUILDING.md.
+#
+# Gating follows the rest of the repository:
+#
+#   * workflow_dispatch  - run manually (Actions tab, or
+#                          `gh workflow run "Android build" --ref <branch>`)
+#   * push               - only when the repository variable L4D1_CI_ON_PUSH is
+#                          `true`; unset means no runner minutes are spent
+#
+# A full engine build takes a while. Narrow it down with the `games` input
+# (for example `hl2`) while iterating on toolchain problems: only the game code
+# changes then, not the whole engine's worth of objects.
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Target architecture"
+        type: choice
+        options: [aarch64, armeabi-v7a]
+        default: aarch64
+      ndk_version:
+        description: "NDK revision (xcompile.py understands r10e, r19c and r20)"
+        type: string
+        default: r10e
+      games:
+        description: "Game code to build (left4dead, hl2, ...)"
+        type: string
+        default: left4dead
+      api:
+        description: "Android API level"
+        type: string
+        default: "21"
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    if: github.event_name == 'workflow_dispatch' || vars.L4D1_CI_ON_PUSH == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+
+    env:
+      ARCH: ${{ inputs.arch || 'aarch64' }}
+      NDK_VERSION: ${{ inputs.ndk_version || 'r10e' }}
+      GAMES: ${{ inputs.games || 'left4dead' }}
+      API: ${{ inputs.api || '21' }}
+
+    steps:
+    - name: Checkout (with submodules)
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 1
+
+    - name: Host toolchain
+      run: |
+        gcc --version | head -1
+        python3 --version
+        unzip -v | head -2
+        df -h "$GITHUB_WORKSPACE" | tail -1
+        if [ -d thirdparty ] && [ -z "$(ls -A thirdparty)" ]; then
+          echo "::warning::thirdparty/ is empty - submodules did not populate"
+        fi
+
+    - name: Cache NDK
+      uses: actions/cache@v4
+      with:
+        path: .ndk
+        key: ndk-${{ env.NDK_VERSION }}-linux-x86_64
+
+    - name: Configure and build
+      shell: bash
+      run: |
+        set -o pipefail
+        sh scripts/build-android.sh 2>&1 | tee build-android.log
+
+    - name: Collect libraries
+      if: always()
+      run: |
+        mkdir -p out
+        for name in libclient.so libserver.so liblauncher.so libgameui.so; do
+          src=$(find . -name "$name" -type f -not -path "./out/*" | head -n1 || true)
+          if [ -n "$src" ]; then
+            cp "$src" "out/$name"
+            echo "collected $name from $src"
+          else
+            echo "::warning::no $name in the build tree"
+          fi
+        done
+        ls -l out || true
+
+    - name: Verify the modules are really ${{ env.ARCH }}
+      if: always()
+      shell: bash
+      run: |
+        case "$ARCH" in
+          aarch64) expect="AArch64" ;;
+          armeabi-v7a*) expect="ARM" ;;
+          x86_64) expect="x86-64" ;;
+          *) expect="x86" ;;
+        esac
+        status=0
+        for name in libclient.so libserver.so; do
+          file="out/$name"
+          if [ ! -f "$file" ]; then
+            echo "::error::missing $name - the game code did not build"
+            status=1
+            continue
+          fi
+          python3 -m l4d1ctl inspect "$file"
+          if ! python3 -m l4d1ctl inspect "$file" | grep -q "$expect"; then
+            echo "::error::$name is not $expect - the cross-compile picked up the host toolchain"
+            status=1
+          fi
+        done
+        exit $status
+
+    - name: Upload libraries
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-${{ env.ARCH }}-libraries
+        path: out/
+        if-no-files-found: warn
+        retention-days: 30
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-${{ env.ARCH }}-logs
+        path: |
+          build-android.log
+          build/config.log
+        if-no-files-found: warn
+        retention-days: 14
+
+    - name: Summary
+      if: always()
+      run: |
+        {
+          echo "### Android build: $ARCH, NDK $NDK_VERSION, games=$GAMES"
+          echo
+          if [ -d out ] && [ -n "$(ls -A out 2>/dev/null)" ]; then
+            echo "| file | size |"
+            echo "| --- | --- |"
+            for f in out/*; do
+              echo "| $(basename "$f") | $(wc -c <"$f" | tr -d ' ') bytes |"
+            done
+          else
+            echo "No libraries were produced - read the **logs** artifact."
+          fi
+          echo
+          echo "Install on a device with:"
+          echo '```sh'
+          echo "python3 -m l4d1ctl module install --from <unzipped artifact> --force"
+          echo "L4D1_TARGET_MACHINE=$ARCH python3 -m l4d1ctl check --engine <engine>"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"

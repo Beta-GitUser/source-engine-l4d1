@@ -3,6 +3,7 @@ import os
 import struct
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -152,6 +153,52 @@ class HostAndEngineTests(unittest.TestCase):
 
     def test_interface_versions_missing_file(self):
         self.assertEqual(preflight.interface_versions(Path("/nope/m.so")), {})
+
+
+class TargetMachineTests(unittest.TestCase):
+    """Checking a cross-compiled build from a host - the only way this gets
+    tested, since the NDK has no arm64 host package."""
+
+    def test_android_abi_names_map_to_architectures(self):
+        with mock.patch.dict(os.environ, {"L4D1_TARGET_MACHINE": "arm64-v8a"}):
+            self.assertEqual(preflight.host_machine(), "AArch64")
+        with mock.patch.dict(os.environ, {"L4D1_TARGET_MACHINE": "armeabi-v7a"}):
+            self.assertEqual(preflight.host_machine(), "ARM")
+
+    def test_target_alias_names_can_be_fed_back_in(self):
+        for machine in ("AArch64", "x86-64", "ARM", "x86"):
+            alias = preflight.target_alias(machine)
+            with mock.patch.dict(os.environ, {"L4D1_TARGET_MACHINE": alias}):
+                self.assertEqual(preflight.host_machine(), machine, alias)
+
+    def test_arm64_module_passes_when_target_declared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = make_install(Path(tmp))
+            (paths.bindir / "client.so").write_bytes(elf_with(b"VClient017", machine=183))
+            (paths.bindir / "server.so").write_bytes(elf_with(b"ServerGameDLL010", machine=183))
+            with mock.patch.dict(os.environ, {"L4D1_TARGET_MACHINE": "aarch64"}):
+                report = preflight.run(paths, engine=str(fake_engine(Path(tmp))))
+                payload = report.to_dict()
+            self.assertTrue(report.ok, report.render())
+            self.assertEqual(payload["target_machine"], "AArch64")
+
+    def test_arm64_module_fails_without_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = make_install(Path(tmp))
+            (paths.bindir / "client.so").write_bytes(elf_with(b"VClient017", machine=183))
+            with mock.patch.dict(os.environ, {"L4D1_TARGET_MACHINE": ""}):
+                report = preflight.run(paths)
+            blocking = {c.code: c for c in report.blocking}
+            if preflight.host_machine() == "AArch64":
+                self.skipTest("host is already arm64")
+            self.assertIn("module.client", blocking)
+            self.assertIn("L4D1_TARGET_MACHINE=aarch64", blocking["module.client"].fix)
+
+    def test_report_reports_the_machine_it_compared_against(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = make_install(Path(tmp))
+            report = preflight.run(paths)
+            self.assertEqual(report.to_dict()["target_machine"], preflight.host_machine())
 
 
 class PreflightRunTests(unittest.TestCase):

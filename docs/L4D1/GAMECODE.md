@@ -15,8 +15,10 @@ loaded from the game directory:
 | `server` | the server side, same `GAMEBIN` search path | `ServerGameDLL010` (`public/eiface.h:457`) |
 
 `GAMEBIN` resolves to `<gamedir>/bin`, so `left4dead/bin/client.so` and
-`left4dead/bin/server.so` are what `-game left4dead` boots. Android builds may
-name them `libclient.so` / `libserver.so`; both are accepted by the tooling.
+`left4dead/bin/server.so` are what `-game left4dead` boots. On Android the files
+are `libclient.so` / `libserver.so` and live beside the engine binary instead;
+both spellings are accepted by the tooling (`l4d1ctl inspect`,
+`module_name_for`, `check`).
 
 ## Bootstrap: build HL2 game code into `left4dead/bin`
 
@@ -29,6 +31,16 @@ git submodule init && git submodule update     # thirdparty, ivp, lib
 ./waf configure -T release --build-games left4dead
 ./waf build
 # -> game/left4dead/bin/{client,server}.so
+```
+
+On Android the same game code is built by CI, because there is no arm64 host
+NDK (see [BUILDING.md](BUILDING.md)). The layout differs: the modules come out
+as `libclient.so` / `libserver.so` next to the engine, not in `<gamedir>/bin`.
+
+```sh
+gh workflow run "Android build"
+gh run download <run-id> -n android-aarch64-libraries
+python3 -m l4d1ctl inspect out/libclient.so    # ELF 64-bit AArch64 ... VClient017
 ```
 
 If you already have an HL2 build, install it instead of rebuilding:

@@ -54,6 +54,11 @@ _HOST_MACHINES = {
     "armv7l": "ARM",
     "armv8l": "ARM",
     "riscv64": "RISC-V",
+    # Android ABI names, so CI can just pass $ARCH through.
+    "arm64-v8a": "AArch64",
+    "armeabi-v7a": "ARM",
+    "armeabi-v7a-hard": "ARM",
+    "armeabi": "ARM",
     "ppc64le": "PowerPC",
     "mips": "MIPS",
 }
@@ -133,6 +138,7 @@ class Report:
         return {
             "gamedir": str(self.gamedir),
             "engine": self.engine,
+            "target_machine": host_machine(),
             "verdict": self.verdict,
             "ok": self.ok,
             "argv": list(self.argv),
@@ -143,6 +149,24 @@ class Report:
 # ---------------------------------------------------------------------------
 # Environment helpers
 # ---------------------------------------------------------------------------
+
+# The other direction: an architecture name back to something the user can put
+# in L4D1_TARGET_MACHINE.
+_TARGET_ALIASES = {
+    "x86-64": "x86_64",
+    "AArch64": "aarch64",
+    "ARM": "armeabi-v7a",
+    "x86": "x86",
+    "RISC-V": "riscv64",
+    "PowerPC": "ppc64le",
+    "MIPS": "mips",
+}
+
+
+def target_alias(machine: str) -> str:
+    """A value for L4D1_TARGET_MACHINE that means ``machine``."""
+    return _TARGET_ALIASES.get(machine, machine.lower().replace("-", "_"))
+
 
 def host_machine() -> str:
     raw = (os.environ.get("L4D1_TARGET_MACHINE") or _platform_machine()).lower()
@@ -318,7 +342,9 @@ def _check_engine(report: Report, engine: str) -> Optional[Path]:
             report.add(
                 "engine.arch", FAIL,
                 f"engine is {info.machine}, this machine is {expected}",
-                "build/test on the target device (arm64 phone, not the x86 cross-compile host)",
+                f"cross-compiled for a device? declare it: "
+                f"L4D1_TARGET_MACHINE={target_alias(info.machine)} l4d1ctl check "
+                "(see docs/L4D1/BUILDING.md)",
             )
         else:
             report.add("engine.arch", OK, f"{info.machine} matches this machine")
@@ -460,7 +486,9 @@ def _check_modules(report: Report, paths: PortPaths, engine: Optional[Path]) -> 
         elif info.machine and expected in _HOST_MACHINES.values() and info.machine != expected:
             report.add(code, FAIL,
                        f"{module.path.name} is {info.machine}, engine is {expected}",
-                       "rebuild the module for the target, or run the check on the device")
+                       f"rebuild it for {expected}, or - if this really is a "
+                       f"{info.machine} staging folder - declare the target: "
+                       f"L4D1_TARGET_MACHINE={target_alias(info.machine)}")
         else:
             report.add(code, OK, f"{module.path.name} ({info.summary})")
 
@@ -846,5 +874,6 @@ __all__ = [
     "parse_search_paths",
     "resolve_engine",
     "run",
+    "target_alias",
     "triage_log",
 ]

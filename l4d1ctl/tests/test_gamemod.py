@@ -266,5 +266,66 @@ class CliTests(unittest.TestCase):
             self.assertFalse((gamedir / "bin").exists())
 
 
+class InspectCommandTests(unittest.TestCase):
+    """`l4d1ctl inspect` exists so a CI/artifact download can answer
+    "what is this binary?" before anything is installed."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_cli(self, argv):
+        out, err = StringIO(), StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_reports_architecture_and_interface(self):
+        path = self.root / "libclient.so"
+        path.write_bytes(fake_elf(machine=183) + b"VClient017\x00")
+        code, out, _ = self.run_cli(["inspect", str(path)])
+        self.assertEqual(code, 0, out)
+        self.assertIn("AArch64", out)
+        self.assertIn("VClient017", out)
+
+    def test_json_contract(self):
+        path = self.root / "libserver.so"
+        path.write_bytes(fake_elf(machine=183) + b"ServerGameDLL010\x00")
+        code, out, _ = self.run_cli(["inspect", "--json", str(path)])
+        self.assertEqual(code, 0)
+        payload = json.loads(out)["files"][0]
+        self.assertEqual(payload["format"], "ELF")
+        self.assertEqual(payload["machine"], "AArch64")
+        self.assertEqual(payload["bits"], 64)
+        self.assertEqual(payload["interfaces"]["ServerGameDLL"], ["010"])
+
+    def test_several_files_and_missing_file(self):
+        good = self.root / "a.so"
+        good.write_bytes(fake_elf(machine=62) + b"VClient017\x00")
+        code, out, err = self.run_cli(["inspect", str(good), str(self.root / "nope.so")])
+        self.assertEqual(code, 1)
+        self.assertIn("x86-64", out)
+        self.assertIn("no such file", err)
+
+    def test_text_file_is_named_as_such(self):
+        path = self.root / "notabinary.so"
+        path.write_text("hello")
+        code, out, _ = self.run_cli(["inspect", str(path)])
+        self.assertEqual(code, 0)
+        self.assertIn("unknown format", out)
+        self.assertIn("text file", out)
+
+    def test_option_before_files_parses(self):
+        # argparse cannot do this with a `nargs='*'` positional on a subcommand
+        # taking several actions; the command is top level for this reason.
+        path = self.root / "a.so"
+        path.write_bytes(fake_elf(machine=183))
+        code, out, _ = self.run_cli(["inspect", "--json", str(path)])
+        self.assertEqual(code, 0, out)
+
+
 if __name__ == "__main__":
     unittest.main()
