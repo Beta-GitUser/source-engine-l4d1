@@ -90,6 +90,32 @@ jobs:
         set -o pipefail
         sh scripts/build-android.sh 2>&1 | tee build-android.log
 
+    # Artifacts are the full story, but they are a download away and the log
+    # URL redirects to storage that a restricted network may not reach. Turn the
+    # failure into annotations, which travel with the run itself.
+    - name: Diagnose failure
+      if: failure()
+      shell: bash
+      run: |
+        annotate() {
+          local file="$1" max="$2"
+          [ -f "$file" ] || return 0
+          # Newest line first: the annotation list is truncated from the end.
+          if command -v tac >/dev/null 2>&1; then
+            tail -n "$max" "$file" | tac
+          else
+            tail -r -n "$max" "$file" 2>/dev/null || tail -n "$max" "$file"
+          fi | while IFS= read -r line; do
+            line="${line//$'\r'/}"
+            [ -z "$line" ] && continue
+            line="${line:0:900}"
+            line="${line//'%'/'%25'}"
+            echo "::error::${line}"
+          done
+        }
+        annotate build-android.log 20
+        annotate build/config.log 12
+
     - name: Collect libraries
       if: always()
       run: |

@@ -44,6 +44,26 @@ JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 log() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# A failing `waf configure` prints one line and writes the reason into
+# build/config.log, which is exactly the file nobody finds afterwards. Dump the
+# interesting part of it on the way out.
+diagnose() {
+	code=$?
+	[ "$code" -eq 0 ] && return 0
+	printf '\n--- build failed (exit %s) ---\n' "$code"
+	if [ -f build/config.log ]; then
+		printf -- '--- configure errors (build/config.log) ---\n'
+		grep -iE 'error|fatal|cannot find|no such file|undefined reference|not found|unsupported' \
+			build/config.log | tail -n 20 || tail -n 20 build/config.log || true
+	fi
+	if [ -f build-android.log ]; then
+		printf -- '--- last lines ---\n'
+		tail -n 10 build-android.log || true
+	fi
+	exit "$code"
+}
+trap diagnose EXIT
+
 # ---------------------------------------------------------------------------
 # 1. toolchain
 # ---------------------------------------------------------------------------
