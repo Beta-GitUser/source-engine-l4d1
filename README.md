@@ -40,9 +40,12 @@ This project is using waf buildsystem. If you have waf-related questions look ht
 - [Building instructions(EN)](https://github.com/nillerusr/source-engine/wiki/Source-Engine-(EN))
 - [Building instructions(RU)](https://github.com/nillerusr/source-engine/wiki/Source-Engine-(RU))
 
-# Support me
+# Support nillerusr
 BTC: `bc1qnjq92jj9uqjtafcx2zvnwd48q89hgtd6w8a6na`
 
 ETH: `0x5d0D561146Ed758D266E59B56e85Af0b03ABAF46`
 
 XMR: `48iXvX61MU24m5VGc77rXQYKmoww3dZh6hn7mEwDaLVTfGhyBKq2teoPpeBq6xvqj4itsGh6EzNTzBty6ZDDevApCFNpsJ`
+
+# Fork note
+Yes, this is vibecoded. Congrats, you have eyes. Anyways, actual note as i don't want to come off rude with that line, but i can't exactly get my laptop with integrated graphics up and running, so all i have left to do is to try and vibecode a native port of L4D1 for Android. Why not L4D2, which has practically all the L4D1 content built-in? Just cause, AI won't manage this. Or i won't manage testing every campaign. If this will turn out in a working state, i'll focus on improving it, and only then if stars will align i'll start working on L4D2.
