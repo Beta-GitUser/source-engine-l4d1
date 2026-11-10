@@ -146,6 +146,61 @@
 #include <math.h>
 #endif
 
+/* -------------------------------------------------------------------------
+ * The vreinterpretq_*_f64 family
+ *
+ * GCC 4.9 - the compiler in NDK r10e - has no float64x2_t reinterprets in its
+ * arm_neon.h; they arrived in later releases. The __m128d half of this header
+ * is built on them, so on that toolchain every translation unit that includes
+ * it fails with "'vreinterpretq_s64_f64' was not declared in this scope".
+ *
+ * A reinterpret is a pure bit cast between two 16-byte vectors, so spell it
+ * with __builtin_memcpy: GCC folds a memcpy of known size into straight
+ * register moves, so this costs nothing and needs no intrinsics at all. The
+ * whole family that this header uses is defined, rather than probing for
+ * individual intrinsics, because which members of it a given compiler release
+ * grew is not something to guess at. The #undef is a no-op where the intrinsic
+ * does not exist and replaces it with an identical one where it does.
+ */
+#if defined(__aarch64__)
+
+#define SSE2NEON_DEFINE_REINTERPRET(fn_name, destination_type, source_type) \
+	static inline destination_type ss2neon_##fn_name(source_type v)         \
+	{                                                                       \
+		destination_type r;                                                 \
+		__builtin_memcpy(&r, &v, sizeof(r));                                \
+		return r;                                                           \
+	}
+
+SSE2NEON_DEFINE_REINTERPRET(vreinterpretq_f64_s32, float64x2_t, int32x4_t)
+SSE2NEON_DEFINE_REINTERPRET(vreinterpretq_f64_s64, float64x2_t, int64x2_t)
+SSE2NEON_DEFINE_REINTERPRET(vreinterpretq_f64_u64, float64x2_t, uint64x2_t)
+SSE2NEON_DEFINE_REINTERPRET(vreinterpretq_f64_f32, float64x2_t, float32x4_t)
+SSE2NEON_DEFINE_REINTERPRET(vreinterpretq_s64_f64, int64x2_t, float64x2_t)
+SSE2NEON_DEFINE_REINTERPRET(vreinterpretq_u64_f64, uint64x2_t, float64x2_t)
+SSE2NEON_DEFINE_REINTERPRET(vreinterpretq_u32_f64, uint32x4_t, float64x2_t)
+SSE2NEON_DEFINE_REINTERPRET(vreinterpretq_f32_f64, float32x4_t, float64x2_t)
+
+#undef vreinterpretq_f64_s32
+#undef vreinterpretq_f64_s64
+#undef vreinterpretq_f64_u64
+#undef vreinterpretq_f64_f32
+#undef vreinterpretq_s64_f64
+#undef vreinterpretq_u64_f64
+#undef vreinterpretq_u32_f64
+#undef vreinterpretq_f32_f64
+
+#define vreinterpretq_f64_s32(v) ss2neon_vreinterpretq_f64_s32(v)
+#define vreinterpretq_f64_s64(v) ss2neon_vreinterpretq_f64_s64(v)
+#define vreinterpretq_f64_u64(v) ss2neon_vreinterpretq_f64_u64(v)
+#define vreinterpretq_f64_f32(v) ss2neon_vreinterpretq_f64_f32(v)
+#define vreinterpretq_s64_f64(v) ss2neon_vreinterpretq_s64_f64(v)
+#define vreinterpretq_u64_f64(v) ss2neon_vreinterpretq_u64_f64(v)
+#define vreinterpretq_u32_f64(v) ss2neon_vreinterpretq_u32_f64(v)
+#define vreinterpretq_f32_f64(v) ss2neon_vreinterpretq_f32_f64(v)
+
+#endif /* __aarch64__ */
+
 /* "__has_builtin" can be used to query support for built-in functions
  * provided by gcc/clang and other compilers that support it.
  */

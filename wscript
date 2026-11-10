@@ -333,7 +333,11 @@ def check_deps(conf):
 	if conf.env.DEST_OS != 'win32':
 		conf.check_cc(lib='dl', mandatory=False)
 		conf.check_cc(lib='bz2', mandatory=True)
-		conf.check_cc(lib='rt', mandatory=False)
+		# bionic has no librt: the clock and timer calls are in libc. Probing
+		# anyway cannot succeed, and the failed probe emits a `cannot find -lrt`
+		# line into the configure log, which looks exactly like a broken link.
+		if conf.env.DEST_OS != 'android':
+			conf.check_cc(lib='rt', mandatory=False)
 
 		if not conf.env.LIB_M: # HACK: already added in xcompile!
 			conf.check_cc(lib='m')
@@ -606,13 +610,13 @@ def configure(conf):
 	check_deps( conf )
 
 	# Android is not glibc, but the vpc/wscript files name their system
-	# libraries the Linux way, and waf turns an unknown uselib name into a
-	# literal -l<name>. Translate once, here, instead of editing every target:
-	#   rt     - does not exist; the clock/timer calls live in libc
+	# libraries the Linux way. Translate the names once, here, instead of
+	# editing every target that lists them:
+	#   rt     - does not exist on bionic; the calls live in libc
 	#   log    - liblog.so, the NDK spelling is lowercase
 	#   dl     - libdl.so exists, the NDK spelling is lowercase
-	#   unwind - not part of the aarch64 NDK (and wscript already skips the
-	#            check for aarch64), so make the absence explicit
+	#   unwind - not part of the aarch64 NDK (the check above is skipped for
+	#            aarch64), so make the absence explicit rather than incidental
 	if conf.env.DEST_OS == 'android':
 		conf.env.LIB_RT = []
 		conf.env.LIB_LOG = ['log']

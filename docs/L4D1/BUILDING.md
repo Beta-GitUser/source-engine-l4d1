@@ -131,15 +131,23 @@ you to set the variable.
 
 ## Why the first Android builds fail, in two axes
 
-Every failure so far is one of two things, not a pile of unrelated breakage:
+Every failure so far is one of three things, not a pile of unrelated breakage:
 
 1. **glibc names vs bionic.** The vpc/wscript files name their system libraries
    the Linux way (`rt`, `log`, `dl`, `unwind`). Android has no `librt`; the log
-   and dl entry points live in `liblog.so` / `libdl.so`. waf turns an *unknown*
-   uselib name into nothing and a *known* one into `-l<name>`, so the fix is a
-   single translation table in `wscript`'s android branch, not a patch per
-   target.
-2. **32-bit assumptions in 64-bit code.** The armv7a build never exercises the
+   and dl entry points live in `liblog.so` / `libdl.so`. The fix is a single
+   translation table in `wscript`'s android branch rather than a patch per
+   target. Do not read a `cannot find -lrt` line in a build log as a link
+   failure without checking which step emitted it: `check_deps()` used to probe
+   for librt during configure, and a failed probe looks identical to a broken
+   link. It is skipped on Android now.
+2. **The compiler is old, and the code assumes newer intrinsics.** NDK r10e
+   ships GCC 4.9, whose `arm_neon.h` predates the `vreinterpretq_*_f64`
+   intrinsics that `sse2neon.h` is built on, so every file that includes that
+   header fails with "was not declared in this scope". The fork shims the whole
+   family as `__builtin_memcpy` bit casts, which compile to the same register
+   moves the intrinsics would have produced.
+3. **32-bit assumptions in 64-bit code.** The armv7a build never exercises the
    `PLATFORM_64BITS` paths; aarch64 does. The first one hit is
    `public/tier0/tslist.h`'s 128-bit head, which needs a 16-byte
    compare-and-swap. GCC cannot inline that on AArch64 (no `cmpxchg16b`, and
@@ -230,7 +238,7 @@ copies are in `.gitignore` - do not "helpfully" commit one.
 | `undefined reference to 'glGenFramebuffers'` / `AAsset_seek64` | linking `libSDL2.so` without `-lGLESv2 -landroid`; `xcompile.py` now adds the Android platform libs |
 | `Unknown NDK revision: 27` | an inherited NDK won; the script now rejects unsupported revisions and fetches `NDK_VERSION` |
 | `undefined reference to '__sync_bool_compare_and_swap_16'` | 16-byte CAS on AArch64; provided by `tier0/threadtools.cpp` via LDXP/STXP |
-| `ld: cannot find -lrt` | `check_cc(lib='rt')` succeeds against the sysroot stub but the real link has no librt; `wscript` now sets `LIB_RT = []` for Android |
+| `ld: cannot find -lrt` in the **configure** log | not a link failure: `check_deps()` probes `lib='rt'`, which cannot exist on bionic. Now skipped for Android (`wscript`), and `LIB_RT` is emptied so no target can request it |
 | `undefined reference to 'fprintf@LIBC'` / `read@LIBC` | the prebuilt SDL2 was linked against a differently versioned libc stub; `xcompile.py` now passes `-Wl,--allow-shlib-undefined` (the device's libc resolves them at runtime). The real fix is rebuilding SDL2 for this NDK |
 | `-lSDL2` / `libSDL2.so` missing | SDL2 in `lib/android/<arch>/` is not populated for this tree |
 | `Exec format error` on device | binary and module came from different arches — `l4d1ctl inspect` both |
