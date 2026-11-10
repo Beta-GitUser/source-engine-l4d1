@@ -352,6 +352,13 @@ def configure(conf):
 		conf.env.STLIBPATH += [os.path.abspath(os.path.join(android.ndk_home, 'sources','cxx-stl','gnu-libstdc++','4.9','libs',stlarch))]
 		conf.env.LDFLAGS += ['-lgnustl_static']
 
+		# Everything that links lib/android/<abi>/libSDL2.so must also satisfy the
+		# platform symbols SDL2 itself leaves undefined. Without these the link
+		# fails with "undefined reference to `glGenFramebuffers'" (GLESv2) and
+		# "`AAsset_seek64'" (libandroid) - which reads like an engine bug and is
+		# only a missing -l.
+		conf.env.LDFLAGS += ['-lGLESv2', '-landroid', '-llog', '-lOpenSLES']
+
 		conf.env.HAVE_M = True
 		if android.is_hardfp():
 			conf.env.LIB_M = ['m_hard']

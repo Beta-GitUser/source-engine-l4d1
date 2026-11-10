@@ -138,6 +138,8 @@ you to set the variable.
 | `arm64-v8a` rejected as an arch | `--android` takes `aarch64`; the ABI name is derived (`xcompile.apk_arch()`) |
 | `thirdparty/` empty or missing headers | submodules not initialised |
 | link error mentioning `gnustl_static` | NDK too new for the hardcoded gnu-libstdc++ paths |
+| `undefined reference to 'glGenFramebuffers'` / `AAsset_seek64` | linking `libSDL2.so` without `-lGLESv2 -landroid`; `xcompile.py` now adds the Android platform libs |
+| `Unknown NDK revision: 27` | an inherited NDK won; the script now rejects unsupported revisions and fetches `NDK_VERSION` |
 | `-lSDL2` / `libSDL2.so` missing | SDL2 in `lib/android/<arch>/` is not populated for this tree |
 | `Exec format error` on device | binary and module came from different arches — `l4d1ctl inspect` both |
 | `Unable to load client DLL` on device | modules not beside the engine, or `lib` prefix missing |
