@@ -60,6 +60,11 @@ jobs:
       NDK_VERSION: ${{ inputs.ndk_version || 'r10e' }}
       GAMES: ${{ inputs.games || 'left4dead' }}
       API: ${{ inputs.api || '21' }}
+      # The image exports ANDROID_NDK_HOME pointing at a modern NDK, which
+      # xcompile.py rejects ("Unknown NDK revision: 27"). Empty wins over the
+      # inherited value, so the script fetches NDK_VERSION instead.
+      NDK_HOME: ""
+      ANDROID_NDK_HOME: ""
 
     steps:
     - name: Checkout (with submodules)

@@ -38,6 +38,7 @@ GAMES=${GAMES:-left4dead}
 BUILD_TYPE=${BUILD_TYPE:-release}
 NDK_VERSION=${NDK_VERSION:-r10e}
 NDK_HOME=${NDK_HOME:-${ANDROID_NDK_HOME:-}}
+USE_ENV_NDK=${USE_ENV_NDK:-0}
 EXTRA_FLAGS=${EXTRA_FLAGS:-}
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 
@@ -53,7 +54,7 @@ diagnose() {
 	printf '\n--- build failed (exit %s) ---\n' "$code"
 	if [ -f build/config.log ]; then
 		printf -- '--- configure errors (build/config.log) ---\n'
-		grep -iE 'error|fatal|cannot find|no such file|undefined reference|not found|unsupported' \
+		grep -iE 'error|fatal|cannot find|no such file|undefined reference|not found|unsupported|unknown' \
 			build/config.log | tail -n 20 || tail -n 20 build/config.log || true
 	fi
 	if [ -f build-android.log ]; then
@@ -67,6 +68,35 @@ trap diagnose EXIT
 # ---------------------------------------------------------------------------
 # 1. toolchain
 # ---------------------------------------------------------------------------
+# xcompile.py only understands NDK r10e, r19c and r20 (it still injects
+# gnu-libstdc++ 4.9 paths). Build images ship a much newer NDK and export
+# ANDROID_NDK_HOME, so an inherited NDK must not silently win: it fails
+# configure with "Unknown NDK revision: 27".
+ndk_major() {
+	if [ -f "$1/source.properties" ]; then
+		sed -n 's/^Pkg.Revision *= *//p' "$1/source.properties" | head -n1 | cut -d. -f1
+	elif [ -f "$1/RELEASE.TXT" ]; then
+		echo 10
+	else
+		echo unknown
+	fi
+}
+
+if [ -n "$NDK_HOME" ] && [ "$USE_ENV_NDK" != "1" ]; then
+	inherited_major=$(ndk_major "$NDK_HOME")
+	case "$inherited_major" in
+		10|19|20) ;;
+		*)
+			printf 'note: ignoring NDK %s at %s - xcompile.py supports r10e, r19c, r20\n' \
+				"$inherited_major" "$NDK_HOME" >&2
+			printf 'note: fetching NDK %s instead (USE_ENV_NDK=1 keeps the inherited one)\n' \
+				"$NDK_VERSION" >&2
+			NDK_HOME=""
+			ANDROID_NDK_HOME=""
+			;;
+	esac
+fi
+
 if [ -z "$NDK_HOME" ]; then
 	cache="$ROOT/.ndk"
 	NDK_HOME="$cache/android-ndk-$NDK_VERSION"
@@ -93,10 +123,12 @@ fi
 NDK_HOME=$(cd "$NDK_HOME" && pwd)
 export NDK_HOME ANDROID_NDK_HOME="$NDK_HOME"
 
-ndk_rev="unknown"
-if [ -f "$NDK_HOME/source.properties" ]; then
-	ndk_rev=$(sed -n 's/^Pkg.Revision *= *//p' "$NDK_HOME/source.properties" | head -n1)
-fi
+ndk_rev=$(ndk_major "$NDK_HOME")
+case "$ndk_rev" in
+	10|19|20) ;;
+	*) printf 'warning: NDK revision %s is outside what xcompile.py knows (r10e, r19c, r20)\n' \
+		"$ndk_rev" >&2 ;;
+esac
 
 case "$ARCH" in
 	aarch64) abi=arm64-v8a ;;
