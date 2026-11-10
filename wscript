@@ -605,6 +605,20 @@ def configure(conf):
 
 	check_deps( conf )
 
+	# Android is not glibc, but the vpc/wscript files name their system
+	# libraries the Linux way, and waf turns an unknown uselib name into a
+	# literal -l<name>. Translate once, here, instead of editing every target:
+	#   rt     - does not exist; the clock/timer calls live in libc
+	#   log    - liblog.so, the NDK spelling is lowercase
+	#   dl     - libdl.so exists, the NDK spelling is lowercase
+	#   unwind - not part of the aarch64 NDK (and wscript already skips the
+	#            check for aarch64), so make the absence explicit
+	if conf.env.DEST_OS == 'android':
+		conf.env.LIB_RT = []
+		conf.env.LIB_LOG = ['log']
+		conf.env.LIB_DL = ['dl']
+		conf.env.LIB_UNWIND = []
+
 	# indicate if we are packaging for Linux/BSD
 	if conf.env.DEST_OS != 'android':
 		conf.env.LIBDIR = conf.env.PREFIX+'/bin/'

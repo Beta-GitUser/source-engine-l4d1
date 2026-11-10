@@ -1924,6 +1924,66 @@ bool ThreadInterlockedAssignIf64( int64 volatile * pDest, int64 value, int64 com
 	return __sync_bool_compare_and_swap( pDest, comperand, value );
 }
 
+#if defined( __aarch64__ )
+//-----------------------------------------------------------------------------
+// 16-byte compare-and-swap for AArch64.
+//
+// GCC cannot inline a 128-bit compare-and-swap on AArch64: there is no
+// cmpxchg16b equivalent, and the single-instruction CAS that LSE provides only
+// exists from ARMv8.1, which this toolchain cannot target. So
+// `__sync_bool_compare_and_swap` on an `__int128` degrades into a call to
+// `__sync_bool_compare_and_swap_16` - a symbol libatomic does not provide under
+// that spelling, which is why linking anything that instantiates
+// public/tier0/tslist.h fails with "undefined reference to
+// `__sync_bool_compare_and_swap_16'".
+//
+// ARMv8.0 does have the exclusive pair instructions, and a 128-bit LL/SC over
+// LDXP/STXP is precisely what they exist for, so this stays lock-free: load the
+// pair, compare, store the pair, retry if another core took the monitor. On the
+// compare-failure path the monitor has to be dropped explicitly (clrex).
+//
+// Only the `bool` form is emitted by this code base. If some future code uses
+// `__sync_val_compare_and_swap` on 16 bytes, the linker will name the missing
+// symbol and it can be added here in the same shape.
+//-----------------------------------------------------------------------------
+static inline bool ArchCAS16( volatile __int128 *pDest, __int128 comparand, __int128 value )
+{
+	uint64 cmp_lo = ( uint64 )comparand;
+	uint64 cmp_hi = ( uint64 )( comparand >> 64 );
+	uint64 val_lo = ( uint64 )value;
+	uint64 val_hi = ( uint64 )( value >> 64 );
+	uint64 old_lo, old_hi;
+	uint32 stored, swapped;
+
+	__asm__ __volatile__(
+		"1:  ldaxp   %x[old_lo], %x[old_hi], [%[dest]] \n"
+		"    cmp     %x[old_lo], %x[cmp_lo]           \n"
+		"    ccmp    %x[old_hi], %x[cmp_hi], #0, eq    \n"
+		"    b.ne    2f                                \n"
+		"    stlxp   %w[stored], %x[val_lo], %x[val_hi], [%[dest]] \n"
+		"    cbnz    %w[stored], 1b                    \n"
+		"    mov     %w[swapped], #1                   \n"
+		"    b       3f                                \n"
+		"2:  clrex                                     \n"
+		"    mov     %w[swapped], #0                   \n"
+		"3:                                            \n"
+		: [swapped] "=&r" ( swapped ), [stored] "=&r" ( stored ),
+		  [old_lo] "=&r" ( old_lo ), [old_hi] "=&r" ( old_hi )
+		: [dest] "r" ( pDest ),
+		  [cmp_lo] "r" ( cmp_lo ), [cmp_hi] "r" ( cmp_hi ),
+		  [val_lo] "r" ( val_lo ), [val_hi] "r" ( val_hi )
+		: "cc", "memory" );
+
+	return swapped != 0;
+}
+
+// The symbol GCC's `__sync_bool_compare_and_swap( __int128 *, ... )` calls.
+extern "C" bool __sync_bool_compare_and_swap_16( volatile __int128 *pDest, __int128 comparand, __int128 value )
+{
+	return ArchCAS16( pDest, comparand, value );
+}
+#endif // __aarch64__
+
 
 #elif defined( _PS3 )
 

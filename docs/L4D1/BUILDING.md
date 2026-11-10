@@ -129,6 +129,35 @@ CI job can assert it. Without the variable, an arm64 module on an x86 host is
 reported as a blocking architecture mismatch — correct, and the `->` line tells
 you to set the variable.
 
+## Why the first Android builds fail, in two axes
+
+Every failure so far is one of two things, not a pile of unrelated breakage:
+
+1. **glibc names vs bionic.** The vpc/wscript files name their system libraries
+   the Linux way (`rt`, `log`, `dl`, `unwind`). Android has no `librt`; the log
+   and dl entry points live in `liblog.so` / `libdl.so`. waf turns an *unknown*
+   uselib name into nothing and a *known* one into `-l<name>`, so the fix is a
+   single translation table in `wscript`'s android branch, not a patch per
+   target.
+2. **32-bit assumptions in 64-bit code.** The armv7a build never exercises the
+   `PLATFORM_64BITS` paths; aarch64 does. The first one hit is
+   `public/tier0/tslist.h`'s 128-bit head, which needs a 16-byte
+   compare-and-swap. GCC cannot inline that on AArch64 (no `cmpxchg16b`, and
+   ARMv8.1's single-instruction CAS is newer than NDK r10e), so it emits a call
+   to `__sync_bool_compare_and_swap_16`, which libatomic does not provide under
+   that name. `tier0/threadtools.cpp` now defines it with LDXP/STXP - the ARMv8
+   load/store exclusive pair, which is exactly a 128-bit LL/SC, so the list
+   stays lock-free.
+
+Both are real portability fixes rather than flag juggling: nothing is suppressed
+and no target silently loses a library.
+
+One wart remains: the prebuilt `lib/android/<abi>/libSDL2.so` was linked against
+a differently versioned libc, so its `fprintf@LIBC`-style symbols need
+`-Wl,--allow-shlib-undefined`. The correct long-term fix is rebuilding SDL2 with
+the same NDK; until then, only *shared-library* undefined symbols are tolerated,
+never undefined symbols in this tree's own objects.
+
 ## When the build fails
 
 | Symptom | Usually means |
@@ -140,6 +169,8 @@ you to set the variable.
 | link error mentioning `gnustl_static` | NDK too new for the hardcoded gnu-libstdc++ paths |
 | `undefined reference to 'glGenFramebuffers'` / `AAsset_seek64` | linking `libSDL2.so` without `-lGLESv2 -landroid`; `xcompile.py` now adds the Android platform libs |
 | `Unknown NDK revision: 27` | an inherited NDK won; the script now rejects unsupported revisions and fetches `NDK_VERSION` |
+| `undefined reference to '__sync_bool_compare_and_swap_16'` | 16-byte CAS on AArch64; provided by `tier0/threadtools.cpp` via LDXP/STXP |
+| `ld: cannot find -lrt` | `check_cc(lib='rt')` succeeds against the sysroot stub but the real link has no librt; `wscript` now sets `LIB_RT = []` for Android |
 | `undefined reference to 'fprintf@LIBC'` / `read@LIBC` | the prebuilt SDL2 was linked against a differently versioned libc stub; `xcompile.py` now passes `-Wl,--allow-shlib-undefined` (the device's libc resolves them at runtime). The real fix is rebuilding SDL2 for this NDK |
 | `-lSDL2` / `libSDL2.so` missing | SDL2 in `lib/android/<arch>/` is not populated for this tree |
 | `Exec format error` on device | binary and module came from different arches — `l4d1ctl inspect` both |
