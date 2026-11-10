@@ -103,14 +103,7 @@ jobs:
       shell: bash
       run: |
         annotate() {
-          local file="$1" max="$2"
-          [ -f "$file" ] || return 0
-          # Newest line first: the annotation list is truncated from the end.
-          if command -v tac >/dev/null 2>&1; then
-            tail -n "$max" "$file" | tac
-          else
-            tail -r -n "$max" "$file" 2>/dev/null || tail -n "$max" "$file"
-          fi | while IFS= read -r line; do
+          while IFS= read -r line; do
             line="${line//$'\r'/}"
             [ -z "$line" ] && continue
             line="${line:0:900}"
@@ -118,8 +111,23 @@ jobs:
             echo "::error::${line}"
           done
         }
-        annotate build-android.log 20
-        annotate build/config.log 12
+        # waf prints the failing command as a Python list, so a plain tail is
+        # 40 lines of flags with the actual diagnostic somewhere above it.
+        if [ -f build-android.log ]; then
+          grep -aE 'error:|fatal error|undefined reference|Error [0-9]+|No such file|cannot find|Unknown NDK' \
+            build-android.log \
+            | grep -av 'sysroot=' \
+            | grep -av "^\['" \
+            | tail -n 12 > /tmp/errors.txt || true
+          [ -s /tmp/errors.txt ] || tail -n 12 build-android.log > /tmp/errors.txt
+          echo "--- from build-android.log ---"
+          annotate < /tmp/errors.txt
+        fi
+        if [ -f build/config.log ]; then
+          echo "--- from build/config.log ---"
+          grep -aE 'error|fatal|not found|unknown|unsupported' build/config.log \
+            | tail -n 6 | annotate || true
+        fi
 
     - name: Collect libraries
       if: always()

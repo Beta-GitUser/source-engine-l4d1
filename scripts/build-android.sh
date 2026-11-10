@@ -58,8 +58,13 @@ diagnose() {
 			build/config.log | tail -n 20 || tail -n 20 build/config.log || true
 	fi
 	if [ -f build-android.log ]; then
+		printf -- '--- compiler/linker errors ---\n'
+		# waf dumps the failing command line as a Python list, which buries the
+		# one line that matters. Filter to error lines and drop the dumps.
+		grep -aE 'error:|fatal error|undefined reference|Error [0-9]+|No such file|cannot find|not found' \
+			build-android.log | grep -av 'sysroot=' | grep -av "^\['" | tail -n 15 || true
 		printf -- '--- last lines ---\n'
-		tail -n 10 build-android.log || true
+		tail -n 5 build-android.log || true
 	fi
 	exit "$code"
 }
