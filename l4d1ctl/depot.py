@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence
 
+from . import gamemod
 from .paths import APPID, GAME_DIR_NAME
 
 # PC binaries are Windows/x86 leftovers. This port rebuilds game code, so they
@@ -129,8 +130,27 @@ def verify_game_dir(gamedir: Path) -> VerificationReport:
         else:
             report.checks.append(Check("warn", f"{required}/ missing (may live inside the VPK)"))
 
-    if (gamedir / "bin").is_dir():
-        report.checks.append(Check("warn", "bin/ present: PC binaries are unused by this port and can be deleted"))
+    # bin/ is two different things at once. A depot copy carries Valve's PC
+    # binaries there (dead weight on a phone), while this port *installs* its
+    # rebuilt module in the same folder. Deleting bin/ wholesale, as earlier
+    # versions of this message suggested, removes the game module and every
+    # launch fails with "Unable to load client DLL".
+    bin_dir = gamedir / "bin"
+    if bin_dir.is_dir():
+        modules = gamemod.scan_modules(bin_dir)
+        if modules:
+            names = ", ".join(sorted(module.path.name for module in modules.values()))
+            report.checks.append(Check("ok", f"game module in bin/: {names}"))
+            missing = [name for name in gamemod.REQUIRED_MODULES if name not in modules]
+            if missing:
+                report.checks.append(Check("fail", f"bin/ is missing the {', '.join(missing)} module: "
+                                                   "the engine cannot load the game"))
+        pc = sorted(p.name for p in bin_dir.iterdir()
+                    if p.is_file() and p.suffix.lower() in (".dll", ".exe", ".pdb"))
+        if pc:
+            report.checks.append(Check("warn", f"PC binaries in bin/ ({', '.join(pc[:4])}"
+                                              + (" ..." if len(pc) > 4 else "")
+                                              + "): unused by this port, safe to delete individually"))
 
     report.files, report.bytes = _dir_size(gamedir)
     report.checks.append(Check("ok" if report.files else "fail", f"{report.files} files, {report.bytes / (1024 * 1024):.1f} MiB"))

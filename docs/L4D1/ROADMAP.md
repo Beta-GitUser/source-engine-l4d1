@@ -16,7 +16,7 @@ Deliverables:
   `doctor`/`status`.
 * `launcher/portcore` (C++, no engine dependencies): `port.cfg` parser and argv
   builder, wired into `launcher/android/main.cpp`.
-* Tests: 128 Python tests + 67 C++ checks, runnable without the engine build
+* Tests: 226 Python tests + 67 C++ checks, runnable without the engine build
   (`scripts/test-tooling.sh`) and in CI.
 
 Exit criterion: `l4d1ctl doctor` reports a verified game directory, `l4d1ctl
@@ -47,6 +47,12 @@ map/game-code init rather than in the file system.
 into `game/left4dead/bin`; `l4d1ctl module install/status` moves and inspects
 modules. Map hosting + walking/jumping works, L4D-specific entities are skipped
 with a warning (see [GAMECODE.md](GAMECODE.md)).
+
+Because a game-code phase cannot be tested without a build, the tooling around
+it is testable on its own: `l4d1ctl check` predicts a launch failure from the
+files on disk, `l4d1ctl launch --run` captures the engine log and explains it,
+and `l4d1ctl selftest` rehearses every pipeline against a synthetic install
+(see [TESTING.md](TESTING.md)).
 
 **2b (next).** Replace the bootstrap with our own player:
 

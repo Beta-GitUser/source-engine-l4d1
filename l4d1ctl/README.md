@@ -11,9 +11,12 @@ python3 -m l4d1ctl init
 python3 -m l4d1ctl mod add ./some_mod
 python3 -m l4d1ctl identity --avatar
 python3 -m l4d1ctl launch --print
+python3 -m l4d1ctl check          # would that launch work?
+python3 -m l4d1ctl selftest       # rehearse everything on a synthetic install
 ```
 
 Full command reference: [`../docs/L4D1/LAUNCHER.md`](../docs/L4D1/LAUNCHER.md).
+How to test a download and a launch: [`../docs/L4D1/TESTING.md`](../docs/L4D1/TESTING.md).
 Motivation and limits (what this can and cannot do about Steam, and why):
 [`../docs/L4D1/FEASIBILITY.md`](../docs/L4D1/FEASIBILITY.md).
 
@@ -30,6 +33,8 @@ Motivation and limits (what this can and cannot do about Steam, and why):
 | `gamemod.py` | game module discovery/install into `<gamedir>/bin`, ELF/PE header inspection |
 | `gameinfo.py` | generated `gameinfo.txt` with the mods search path |
 | `launch.py` | engine argv, env, generated identity cfg |
+| `preflight.py` | pre-launch checks in engine order, plus engine-log triage rules |
+| `selftest.py` | synthetic install + end-to-end rehearsal of every pipeline |
 | `doctor.py` | read-only environment checks |
 | `cli.py` | argparse front end |
 

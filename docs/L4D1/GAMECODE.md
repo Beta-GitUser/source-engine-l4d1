@@ -88,9 +88,13 @@ implement next:
 ```sh
 # in the engine console, after loading a map
 find_ent ...            # or just read the warning lines in the log
+
+# or let the tooling collect and dedupe them for you
+python3 -m l4d1ctl launch --run --map c1m1_hotel
 ```
 
-That warning list is the real specification for phase 2b.
+`launch --run` writes the log to `l4d1_port/logs/` and prints the deduped list of
+skipped classnames. That warning list is the real specification for phase 2b.
 
 ## Map intro cutscenes - how they actually work
 

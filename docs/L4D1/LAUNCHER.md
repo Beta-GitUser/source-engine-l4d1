@@ -166,6 +166,21 @@ python3 -m l4d1ctl status --json
 python3 -m l4d1ctl doctor
 ```
 
+`launch` runs the preflight checks first and refuses to start on a blocking
+issue (`--force` overrides, `--no-check` skips). `--run` starts the engine as a
+child process instead of `exec`ing it, captures the log to
+`l4d1_port/logs/launch-<stamp>.log` and triages it:
+
+```sh
+python3 -m l4d1ctl check --json                  # would this launch work? (UI contract)
+python3 -m l4d1ctl check --engine ./hl2_linux
+python3 -m l4d1ctl launch --run --map c1m1_hotel
+python3 -m l4d1ctl selftest                      # rehearse all pipelines, no content
+```
+
+What each verdict means, and what to run for a download versus a launch:
+[TESTING.md](TESTING.md).
+
 `status --json` is the contract for a launcher UI:
 
 ```json

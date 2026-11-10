@@ -17,6 +17,8 @@ __all__ = [
     "launch",
     "mods",
     "paths",
+    "preflight",
+    "selftest",
     "steamid",
     "steamlib",
     "vpk",

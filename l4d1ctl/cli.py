@@ -12,7 +12,10 @@ reference).
     l4d1ctl init
     l4d1ctl identity --avatar
     l4d1ctl mod list | enable <id> | disable <id> | order <id> <n> | add <path> | sync
+    l4d1ctl check                 # will the launch work?
     l4d1ctl launch --map c1m1_hotel
+    l4d1ctl launch --run --map c1m1_hotel   # run, capture, triage
+    l4d1ctl selftest              # rehearse everything on a fake install
 """
 
 from __future__ import annotations
@@ -20,11 +23,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from . import depot, doctor, gameinfo, gamemod, launch, mods, steamid, steamlib, vpk
+from . import (depot, doctor, gameinfo, gamemod, launch, mods, preflight, selftest,
+               steamid, steamlib, vpk)
 from .paths import PortPaths, resolve_gamedir
 
 
@@ -431,6 +437,47 @@ def cmd_vpk(args: argparse.Namespace) -> int:
     return 2
 
 
+def _log_path(paths: PortPaths) -> Path:
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return paths.logs_dir / f"launch-{stamp}.log"
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Answer "will this launch work?" without starting anything."""
+    paths = _paths(args)
+    plan = launch.build_launch_plan(
+        paths,
+        engine=args.engine,
+        map_name=args.map,
+        extra_args=tuple(args.extra),
+        write_cfg=False,
+        dry_run=True,
+    )
+    report = preflight.run(paths, engine=str(plan.argv[0]), argv=plan.argv)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(report.render())
+        print(f"  verdict: {report.verdict}")
+        if report.blocking and not args.json:
+            print("  fix the blocking items above, then re-run `l4d1ctl check`")
+    return 0 if report.ok else 1
+
+
+def cmd_selftest(args: argparse.Namespace) -> int:
+    """Rehearse every pipeline on a synthetic install (no Steam, no content)."""
+    keep = Path(args.keep).expanduser() if args.keep else None
+    report = selftest.run(keep, stages=list(args.stage))
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(report.render())
+        if not report.ok:
+            print("  re-run with L4D1_SELFTEST_TRACEBACK=1 for full tracebacks")
+    return 0 if report.ok else 1
+
+
 def cmd_launch(args: argparse.Namespace) -> int:
     paths = _paths(args)
     identity = steamlib.Identity.from_file(paths.identity_json)
@@ -454,14 +501,70 @@ def cmd_launch(args: argparse.Namespace) -> int:
                 print(f"export {key}={value!r}")
         return 0
 
+    if not args.no_check:
+        report = preflight.run(paths, engine=str(plan.argv[0]), argv=plan.argv)
+        print(report.render())
+        if not report.ok and not args.force:
+            print("error: refusing to launch (use --force to try anyway)", file=sys.stderr)
+            return 1
+
+    if not args.run:
+        print(f"exec: {plan.command()}")
+        try:
+            os.execvpe(plan.argv[0], plan.argv, {**os.environ, **plan.env})
+        except OSError as exc:
+            print(f"failed to start engine: {exc}", file=sys.stderr)
+            return 1
+
+    return _run_captured(plan, paths, timeout=args.timeout)
+
+
+def _run_captured(plan: launch.LaunchPlan, paths: PortPaths, *, timeout: Optional[float]) -> int:
+    """Run the engine, capture its output, then explain any failure."""
+    log_path = _log_path(paths)
     print(f"exec: {plan.command()}")
-    if args.print_only:
-        return 0
+    print(f"log : {log_path}")
+    started = time.time()
     try:
-        os.execvpe(plan.argv[0], plan.argv, {**os.environ, **plan.env})
+        completed = subprocess.run(
+            plan.argv,
+            env={**os.environ, **plan.env},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+        )
+        output = completed.stdout or ""
+        code = completed.returncode
+    except subprocess.TimeoutExpired as exc:
+        output = exc.stdout or ""
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", "replace")
+        code = 124
+        print(f"error: engine still running after {timeout}s, stopped it", file=sys.stderr)
     except OSError as exc:
         print(f"failed to start engine: {exc}", file=sys.stderr)
         return 1
+
+    log_path.write_text(output, encoding="utf-8", errors="replace")
+    elapsed = time.time() - started
+
+    # Show the tail only: startup spew is thousands of lines and the answer is
+    # always near the end.
+    tail = output.splitlines()[-40:]
+    if tail:
+        print("--- engine output (tail) ---")
+        for line in tail:
+            print(f"  {line}")
+        print("--- end ---")
+
+    triage = preflight.triage_log(output, exit_code=code, log_path=log_path)
+    print(triage.render())
+    print(f"  exited {code} after {elapsed:.1f}s")
+    if triage.crashed:
+        return 1
+    return code
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -602,6 +705,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-crc", type=int, default=20)
     p.set_defaults(func=cmd_vpk)
 
+    p = sub.add_parser("check", help="will the launch work? (no launching, no Steam)")
+    p.add_argument("--engine", default=launch.DEFAULT_ENGINE)
+    p.add_argument("--map", help="also check the map argument, e.g. c1m1_hotel")
+    p.add_argument("--extra", nargs=argparse.REMAINDER, default=[])
+    p.add_argument("--json", action="store_true", help="machine-readable report (for the launcher UI)")
+    p.set_defaults(func=cmd_check)
+
+    p = sub.add_parser("selftest", help="rehearse every pipeline on a synthetic install")
+    p.add_argument("--keep", help="keep the synthetic install in this folder for inspection")
+    p.add_argument("--stage", action="append", default=[],
+                   help="only run this stage (repeatable)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_selftest)
+
     p = sub.add_parser("launch", help="build (or run) the engine command line")
     p.add_argument("--engine", default=launch.DEFAULT_ENGINE)
     p.add_argument("--map", help="map to load, e.g. c1m1_hotel")
@@ -609,12 +726,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--extra", nargs=argparse.REMAINDER, default=[])
     p.add_argument("--print", dest="print_only", action="store_true", help="print the command only")
     p.add_argument("--env", action="store_true", help="also print the environment")
+    p.add_argument("--run", action="store_true",
+                   help="run as a child process, capture the log, triage failures")
+    p.add_argument("--timeout", type=float, default=None,
+                   help="with --run: stop the engine after N seconds")
+    p.add_argument("--no-check", action="store_true", help="skip the preflight checks")
+    p.add_argument("--force", action="store_true", help="launch even if preflight says it will fail")
     p.set_defaults(func=cmd_launch)
 
     p = sub.add_parser("status", help="machine-readable summary (used by the launcher UI)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_status)
 
+    # Let `--gamedir` / `--steam-root` also be written after the subcommand.
+    # SUPPRESS keeps the global value when the local one is absent.
+    for child in sub.choices.values():
+        child.add_argument("--gamedir", default=argparse.SUPPRESS,
+                           help="game directory (same as the global option)")
+        child.add_argument("--steam-root", default=argparse.SUPPRESS,
+                           help="Steam installation to read (same as the global option)")
     return parser
 
 
