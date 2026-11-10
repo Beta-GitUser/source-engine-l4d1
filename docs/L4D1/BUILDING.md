@@ -158,6 +158,66 @@ a differently versioned libc, so its `fprintf@LIBC`-style symbols need
 the same NDK; until then, only *shared-library* undefined symbols are tolerated,
 never undefined symbols in this tree's own objects.
 
+## Signing: make the keystore before you need it
+
+A release keystore is the one file in this project that **cannot be recreated**.
+If you publish an APK signed with it and then lose it, you cannot ship an update
+to that app again - the install will be rejected as a different signer. So create
+it once, early, and back it up somewhere you will still have in five years.
+
+```sh
+sh scripts/make-keystore.sh          # prompts for a password, writes l4d1-release.jks
+```
+
+which is the same as this, minus the checks:
+
+```sh
+keytool -genkeypair -v -keystore l4d1-release.jks -alias l4d1 \
+  -keyalg RSA -keysize 4096 -validity 10000 -storetype JKS \
+  -dname "CN=Left 4 Dead 1 (Android port), OU=l4d1, O=l4d1, C=NL"
+```
+
+Choices worth knowing:
+
+| Flag | Why |
+| --- | --- |
+| `-keysize 4096` | overkill by current standards (2048 is the norm) and cheap for one key |
+| `-validity 10000` | ~27 years; Play requires a certificate valid past 2033 |
+| `-storetype JKS` | PKCS12 is the JDK default since 9, but JKS is what every Android tool and every tutorial still expects |
+| no `-storepass` | the password is typed at the prompt, so it never reaches shell history or `ps` |
+
+Use the same password for the store and the key. The script prints the four
+`gh secret set` commands when it is done; CI needs them as secrets, never as
+files in the repository:
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `base64 < l4d1-release.jks \| tr -d '\n'` |
+| `ANDROID_KEYSTORE_PASSWORD` | the store password |
+| `ANDROID_KEY_ALIAS` | `l4d1` |
+| `ANDROID_KEY_PASSWORD` | the key password |
+
+A future APK job materialises it like this, and nothing ever writes the password
+to the log:
+
+```yaml
+- name: Decode the signing key
+  run: |
+    echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/l4d1-release.jks"
+- name: Sign
+  run: |
+    apksigner sign --ks "$RUNNER_TEMP/l4d1-release.jks" \
+      --ks-key-alias "$ANDROID_KEY_ALIAS" \
+      --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+      --key-pass env:ANDROID_KEY_PASSWORD \
+      --out app-release.apk app-unsigned.apk
+```
+
+`apksigner` produces v1+v2+v3 signatures by default, which is what Android 11+
+expects; a debug build (`~/.android/debug.keystore`, generated automatically)
+must never be distributed. `*.jks`, `*.keystore` and the generated `.base64`
+copies are in `.gitignore` - do not "helpfully" commit one.
+
 ## When the build fails
 
 | Symptom | Usually means |

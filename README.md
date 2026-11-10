@@ -107,9 +107,11 @@ Building for Android needs an x86_64 host, so it runs in CI:
 gh workflow run "Android build"                        # arm64 by default
 gh run download <run-id> -n android-aarch64-libraries  # libclient.so, libserver.so, ...
 python3 -m l4d1ctl inspect out/libclient.so            # ELF 64-bit AArch64 ... VClient017
+sh scripts/make-keystore.sh                            # do this once, and back it up
 ```
 
-See [`docs/L4D1/BUILDING.md`](docs/L4D1/BUILDING.md).
+See [`docs/L4D1/BUILDING.md`](docs/L4D1/BUILDING.md) - including why the signing
+key is the one file here that cannot be recreated.
 
 On device, `launcher/android/main.cpp` reads `$APP_DATA_PATH/port.cfg`
 (see [`launcher/port.cfg.example`](launcher/port.cfg.example)).
@@ -117,7 +119,7 @@ On device, `launcher/android/main.cpp` reads `$APP_DATA_PATH/port.cfg`
 Tooling tests do not need the engine build:
 
 ```sh
-scripts/test-tooling.sh   # 236 python tests + 67 C++ checks
+scripts/test-tooling.sh   # 245 python tests + 67 C++ checks
 ```
 
 # Fork note

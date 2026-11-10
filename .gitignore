@@ -41,3 +41,9 @@ source-engine.sln
 # Android build outputs (scripts/build-android.sh)
 .ndk/
 dist/
+
+# Signing keys (scripts/make-keystore.sh) - never commit these
+*.jks
+*.keystore
+*.jks.base64
+*.keystore.base64
