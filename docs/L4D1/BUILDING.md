@@ -226,6 +226,13 @@ expects; a debug build (`~/.android/debug.keystore`, generated automatically)
 must never be distributed. `*.jks`, `*.keystore` and the generated `.base64`
 copies are in `.gitignore` - do not "helpfully" commit one.
 
+## Patching vendored code
+
+`sse2neon.h` is not ours; it is MIT, which permits modification, and this fork
+does modify it to survive GCC 4.9. The rules for that - keep the licence text,
+record the change in the file, and leave a test that fails if the patch is
+dropped - are in [THIRDPARTY.md](THIRDPARTY.md).
+
 ## When the build fails
 
 | Symptom | Usually means |

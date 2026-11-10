@@ -48,6 +48,21 @@
  * SOFTWARE.
  */
 
+/* Modifications in this fork
+ * ==========================
+ * The MIT licence above permits modification; this note records what was
+ * changed so that an upstream update does not silently drop it. See
+ * docs/L4D1/THIRDPARTY.md for the re-application procedure and the test that
+ * enforces it.
+ *
+ * 2026-11-10 - define the float64x2_t reinterpret intrinsics that sse2neon
+ * builds on, because GCC 4.9 (the compiler in NDK r10e) does not declare them.
+ * A reinterpret is a bit cast, so they are spelled with __builtin_memcpy and
+ * no intrinsics. Search for "SSE2NEON_DEFINE_REINTERPRET".
+ *
+ * Upstream: https://github.com/DLTcollab/sse2neon
+ */
+
 /* Tunable configurations */
 
 /* Enable precise implementation of math operations
