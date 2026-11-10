@@ -47,5 +47,42 @@ ETH: `0x5d0D561146Ed758D266E59B56e85Af0b03ABAF46`
 
 XMR: `48iXvX61MU24m5VGc77rXQYKmoww3dZh6hn7mEwDaLVTfGhyBKq2teoPpeBq6xvqj4itsGh6EzNTzBty6ZDDevApCFNpsJ`
 
+# Left 4 Dead 1 port
+
+This fork targets Left 4 Dead 1 (appid 500). Status first, promises second:
+
+- **Engine can read L4D1 assets** (BSP 19-21, VPK v1/v2, MDL 46-49) - yes.
+- **Retail L4D1 game code can run here** - no. It is Windows x86 code for a
+  different engine branch, and it is not redistributable.
+- **Playing L4D1** therefore means reimplementing the game on this engine.
+  That is a large project; the roadmap says what it costs.
+
+Start here:
+
+- [`docs/L4D1/FEASIBILITY.md`](docs/L4D1/FEASIBILITY.md) - what works, what
+  blocks, and the legal boundaries.
+- [`docs/L4D1/ROADMAP.md`](docs/L4D1/ROADMAP.md) - phases and exit criteria.
+- [`docs/L4D1/LAUNCHER.md`](docs/L4D1/LAUNCHER.md) - launcher reference.
+
+Launcher quick start (needs your own Steam copy, no content is bundled):
+
+```sh
+python3 -m l4d1ctl doctor            # what is missing
+python3 -m l4d1ctl import --from-steam
+python3 -m l4d1ctl init              # gameinfo.txt + mods/
+python3 -m l4d1ctl identity --avatar  # name / SteamID64 / avatar (offline display identity)
+python3 -m l4d1ctl mod add ./mymod    # mod manager, load-ordered
+python3 -m l4d1ctl launch --print     # engine command line
+```
+
+On device, `launcher/android/main.cpp` reads `$APP_DATA_PATH/port.cfg`
+(see [`launcher/port.cfg.example`](launcher/port.cfg.example)).
+
+Tooling tests do not need the engine build:
+
+```sh
+scripts/test-tooling.sh   # 128 python tests + 67 C++ checks
+```
+
 # Fork note
 Yes, this is vibecoded. Congrats, you have eyes. Anyways, actual note as i don't want to come off rude with that line, but i can't exactly get my laptop with integrated graphics up and running, so all i have left to do is to try and vibecode a native port of L4D1 for Android. Why not L4D2, which has practically all the L4D1 content built-in? Just cause, AI won't manage this. Or i won't manage testing every campaign. If this will turn out in a working state, i'll focus on improving it, and only then if stars will align i'll start working on L4D2.

@@ -22,6 +22,7 @@ GNU General Public License for more details.
 #include <SDL_hints.h>
 #include "tier0/dbg.h"
 #include "tier0/threadtools.h"
+#include "portcore/portcfg.h"
 
 char *LauncherArgv[512];
 char java_args[4096];
@@ -43,36 +44,60 @@ DLL_EXPORT void Java_com_valvesoftware_ValveActivity2_nativeOnActivityResult()
 
 DLL_EXPORT void Java_com_valvesoftware_ValveActivity2_setArgs(JNIEnv *env, jclass *clazz, jstring str)
 {
-	strncpy( java_args, env->GetStringUTFChars(str, NULL), sizeof java_args );
+	strncpy( java_args, env->GetStringUTFChars(str, NULL), sizeof( java_args ) - 1 );
+	java_args[sizeof( java_args ) - 1] = '\0';
 }
 
+// Builds the engine argv from $APP_DATA_PATH/port.cfg (see launcher/portcore).
+// With no config file this reproduces the historical hardcoded behaviour, so
+// existing installs keep booting exactly as before.
 void SetLauncherArgs()
 {
-#define A(a,b) LauncherArgv[iLastArgs++] = (char*)a; \
-	LauncherArgv[iLastArgs++] = (char*)b
-#define D(a) LauncherArgv[iLastArgs++] = (char*)a
+	const char *appData = getenv( "APP_DATA_PATH" );
 
 	static char binPath[2048];
-	snprintf(binPath, sizeof binPath, "%s/hl2_linux", getenv("APP_DATA_PATH") );
-	D(binPath);
+	snprintf( binPath, sizeof binPath, "%s/hl2_linux", appData ? appData : "." );
 
-	D("-nouserclip");
+	portcore::LaunchOptions options;
 
-	char *pch;
-
-	pch = strtok (java_args," ");
-	while (pch != NULL)
+	if ( appData )
 	{
-		LauncherArgv[iLastArgs++] = pch;
-		pch = strtok (NULL, " ");
+		char configPath[2048];
+		snprintf( configPath, sizeof configPath, "%s/port.cfg", appData );
+
+		portcore::Config config;
+		std::string configError;
+		if ( portcore::Config::LoadFile( configPath, &config, &configError ) )
+		{
+			portcore::ApplyConfig( config, &options );
+			Msg( "launcher: using %s\n", configPath );
+		}
+		else
+		{
+			Msg( "launcher: %s not used (%s); defaults apply\n", configPath, configError.c_str() );
+		}
+	}
+	else
+	{
+		Msg( "launcher: APP_DATA_PATH is not set; defaults apply\n" );
 	}
 
-	D("-fullscreen");
-	D("-nosteam");
-	D("-insecure");
+	// Arguments handed over by the Java activity, e.g. "+map c1m1_hotel".
+	const std::vector<std::string> javaArgs = portcore::TokenizeCommandLine( java_args );
 
-#undef A
-#undef D
+	std::vector<std::string> argv;
+	std::string argvError;
+	if ( !portcore::BuildLaunchArgv( options, binPath, javaArgs, &argv, &argvError ) )
+		Warning( "launcher: %s\n", argvError.c_str() );
+
+	iLastArgs = 0;
+	for ( size_t i = 0; i < argv.size() && iLastArgs < ( sizeof( LauncherArgv ) / sizeof( LauncherArgv[0] ) ) - 1; ++i )
+	{
+		// LauncherArgv outlives this function; the engine only reads it.
+		LauncherArgv[iLastArgs++] = strdup( argv[i].c_str() );
+	}
+
+	Msg( "launcher: %s\n", portcore::FormatArgv( argv ).c_str() );
 }
 
 float GetTotalMemory()

@@ -1,0 +1,17 @@
+// Copy to $APP_DATA_PATH/port.cfg on the device (next to hl2_linux).
+// Read by launcher.so at startup; missing file means the historical defaults.
+// Full reference: docs/L4D1/LAUNCHER.md#portcfg-reference
+
+"port"
+{
+	game		"left4dead"
+	extra_args	"-novid -console -nouserclip"
+	identity_cfg	"l4d1_identity.cfg"
+	player_name	"Player"
+
+	fullscreen	"1"
+	touch		"1"
+	nosteam		"1"
+	insecure	"1"
+	console		"0"
+}

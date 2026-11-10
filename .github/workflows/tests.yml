@@ -3,6 +3,15 @@ name: Tests
 on: [push, pull_request]
 
 jobs:
+  tests-tooling:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Launcher tooling tests (python + c++)
+      run: |
+        scripts/test-tooling.sh
+
   tests-linux-i386:
     runs-on: ubuntu-20.04
 

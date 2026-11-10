@@ -20,6 +20,7 @@ def build(bld):
 	source = [
 		'../public/filesystem_init.cpp',
 		'launcher.cpp',
+		'portcore/portcfg.cpp',
 		'reslistgenerator.cpp',
 		'../public/tier0/memoverride.cpp'
 	]
