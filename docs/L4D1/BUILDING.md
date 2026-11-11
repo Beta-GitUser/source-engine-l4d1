@@ -206,9 +206,17 @@ dependency that was not built for aarch64, and the message names it.
 ### Installing it
 
 Copy the APK to the phone and open it (allowing "install unknown apps"), or
-`adb install -r` from a machine that has one. It is signed with a throwaway debug
-key generated at package time, which is fine for sideloading and useless for
-distribution; see [Signing](#signing-make-the-keystore-before-you-need-it).
+`adb install -r` from a machine that has one. It is signed with a debug key, which
+is fine for sideloading and useless for distribution; see
+[Signing](#signing-make-the-keystore-before-you-need-it).
+
+That key is generated once and cached between runs (`.keys/`, via
+`actions/cache`), not regenerated each time: a fresh key per build would make the
+next APK refuse to install over the previous one with
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, which on a phone without a cable means
+uninstalling first every time. It is cached rather than committed — it is only a
+debug key, but a private key in git is a habit worth not having. If the cache
+ever misses, the cost is one uninstall.
 
 ### What has not been verified
 
