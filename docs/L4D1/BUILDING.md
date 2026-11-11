@@ -23,6 +23,19 @@ What it took, in order, each found by a run rather than guessed:
 | `vreinterpretq_*_f64 was not declared` | GCC 4.9's `arm_neon.h` predates those intrinsics; shimmed as `memcpy` bit casts |
 | `'snprintf'` / `'stoi'` not in `std` | the NDK's libstdc++ lacks the C++11 string conversions; launcher code uses `strtol` and unqualified C calls, enforced by a lint |
 
+Run [43007904508](https://github.com/Beta-GitUser/source-engine-l4d1/actions/runs/43007904508)
+(commit `6141c84`) is that build plus the debug APK: the same job compiles the
+engine, collects the libraries, and packages `l4d1-debug.apk` on the end. All
+three artifacts are published — `android-aarch64-debug-apk` (181 MB),
+`android-aarch64-libraries` (108 MB), `android-aarch64-logs` (9 MB).
+
+The APK step succeeding means the whole packaging path ran: `aapt`, `d8`,
+`zipalign`, `apksigner sign`, and the script's own `apksigner verify`. The
+*contents* were not inspected from here — GitHub's artifact storage answers this
+development sandbox with `EOF`, so the file has to be downloaded from the run page
+and installed to be looked at. Treat the transcript on the phone as the first
+evidence of anything beyond "it packaged".
+
 Known gap, reported as a warning rather than a failure: **`libgameui.so` is not
 produced.** The port's launcher owns that surface (see
 [DEVIATIONS.md](DEVIATIONS.md)), but the retail client asks for `GameUI011`, so

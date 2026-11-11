@@ -21,9 +21,10 @@ a debug APK whose whole job is to say how far loading gets (see
 [BUILDING.md](BUILDING.md#the-debug-apk)). It succeeds when the transcript on the
 phone reads `ok` for each module and an interface name for `libclient.so`.
 
-Until that is green, everything here is host-side reasoning. The APK has been
-assembled but never built or run; the first real run will be the first evidence
-that bionic accepts these modules at all.
+The APK builds: run 43007904508 packages `l4d1-debug.apk` in the same job as the
+libraries. It has not been **run** — nothing here has ever executed on a device —
+so the first launch is the first evidence that bionic accepts these modules at
+all. Installing it is the whole of the next step.
 
 
 ## Phase 0 — Launcher and content pipeline · done
