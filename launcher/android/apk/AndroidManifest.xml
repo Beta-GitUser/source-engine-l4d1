@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug shell for the port.
+
+  Why an APK at all: an unrooted Android device will not run a bare .so file.
+  The dynamic linker maps libraries into a process it creates, so the only door
+  in is an installed package. This one does not try to be a game yet - it loads
+  the engine modules and reports, step by step, how far it gets.
+
+  It is deliberately a plain Activity rather than a NativeActivity: NativeActivity
+  would avoid the Java side entirely, but SDL2's Android backend talks to its
+  Java glue, so the window would never appear. When the port grows a real UI
+  this activity is where SDL's glue goes.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.valvesoftware.l4d1">
+
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="33" />
+
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-feature android:glEsVersion="0x00020000" android:required="false" />
+
+    <application
+        android:label="L4D1 debug"
+        android:debuggable="true"
+        android:extractNativeLibs="true"
+        android:hasFragileUserData="true">
+
+        <activity
+            android:name="com.valvesoftware.ValveActivity2"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:theme="@android:style/Theme.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

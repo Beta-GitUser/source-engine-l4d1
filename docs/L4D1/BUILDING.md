@@ -131,13 +131,70 @@ python3 -m l4d1ctl module install --from out --force             # for the deskt
 python3 -m l4d1ctl module status
 ```
 
-For the Android layout you copy the two `.so` files next to the engine on the
-device instead:
+For a **stock phone there is no Android layout to copy into.** A bare `.so` is not
+runnable: the dynamic linker only maps libraries into a process it creates, so
+neither a shell nor a file manager can execute one, and root is what people use to
+work around that. The delivery vehicle is an installed package — see
+[The debug APK](#the-debug-apk).
 
-```sh
-adb push out/libclient.so out/libserver.so /data/local/tmp/srceng/
-adb shell "cd /data/local/tmp/srceng && ./hl2_linux -game left4dead -nosteam -insecure"
+## The debug APK
+
+`scripts/build-apk.sh` packages the cross-compiled libraries into
+`l4d1-debug.apk`, and the CI job does this in the same run as the build, so one
+dispatch produces both the `.so` set and the APK. It is the only way to put this
+code in front of a device that is not rooted: the package is the process.
+
+What it does is narrow on purpose. It is **not** a game yet — it loads the
+modules and reports, step by step, how far it gets:
+
 ```
+ok    libtier0.so
+ok    libclient.so
+ok    libclient.so -> VClient017
+none  libclient.so -> VClient016
+```
+
+That answers three questions nothing else can answer, all of them about bionic
+rather than about our code:
+
+1. does the linker accept our aarch64 modules (ABI, page size, ELF layout);
+2. do their `DT_NEEDED` dependencies resolve on a real device;
+3. does `CreateInterface` hand back the versions this SDK advertises.
+
+### Reading it without adb
+
+The transcript is written to the app's private `files/probe.log` **after every
+step**, and shown again at the top of the next launch, labelled `previous run
+(ended abruptly)`. A probe that crashes the process therefore still leaves the
+last completed step on screen. This matters because a non-rooted phone cannot
+read another app's logcat and has no adb cable — the app has to be its own
+black box.
+
+The activity also prints the `packaged:` list of the APK's `lib/` directory, so a
+library whose name differs from the guess in `ValveActivity2.LIBRARIES` is
+visible in the transcript instead of silently skipped. Missing libraries are
+skipped, not fatal: the probe is useful at any degree of completeness.
+
+If `liblauncher.so` itself fails to load, the failure is caught in the static
+initialiser and printed with the linker's own message — the usual cause is a
+dependency that was not built for aarch64, and the message names it.
+
+### Installing it
+
+Copy the APK to the phone and open it (allowing "install unknown apps"), or
+`adb install -r` from a machine that has one. It is signed with a throwaway debug
+key generated at package time, which is fine for sideloading and useless for
+distribution; see [Signing](#signing-make-the-keystore-before-you-need-it).
+
+### What has not been verified
+
+The packaging script and the Java side have **not been run**: this workspace has
+no Android SDK, so they cannot be built here. What is checked mechanically
+(`l4d1ctl/tests/test_apk.py`, 17 tests) is the part that would otherwise fail late
+and vaguely: every `native` method declared in Java has a C++ implementation with
+the exact JNI symbol name, the manifest declares a launchable exported activity,
+the probe block compiles, the script fails with a sentence rather than a stack of
+`command not found`, and the workflow actually calls it.
 
 ## Checking a cross-compiled build on the host
 

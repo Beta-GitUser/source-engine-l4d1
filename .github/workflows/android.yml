@@ -170,6 +170,34 @@ jobs:
         done
         exit $status
 
+    - name: Build the debug APK
+      if: always()
+      run: |
+        # The APK is the delivery vehicle, not a nicety: an unrooted phone cannot
+        # run a bare .so, because the linker only maps libraries into a process
+        # it creates. See scripts/build-apk.sh.
+        mkdir -p apk-libs
+        # Engine modules: everything the build produced, minus the NDK's own.
+        find . -name '*.so' -not -path './.ndk/*' -not -path './out/*' \
+             -not -path './lib/android/*' -not -path './thirdparty/*' \
+             -exec cp {} apk-libs/ \; 2>/dev/null || true
+        # Prebuilt third-party libraries (SDL2, steam_api, ...) from the submodule.
+        if [ -d "lib/android/$ARCH" ]; then
+          cp lib/android/$ARCH/*.so apk-libs/ 2>/dev/null || true
+        fi
+        ls -1 apk-libs | wc -l | xargs echo "native libraries to package:"
+        sh scripts/build-apk.sh --libs apk-libs --out apk-out/l4d1-debug.apk \
+          --arch "$ARCH" --api "$API"
+
+    - name: Upload the debug APK
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-${{ env.ARCH }}-debug-apk
+        path: apk-out/l4d1-debug.apk
+        if-no-files-found: warn
+        retention-days: 30
+
     - name: Upload libraries
       if: always()
       uses: actions/upload-artifact@v4
@@ -206,6 +234,14 @@ jobs:
             echo "No libraries were produced - read the **logs** artifact."
           fi
           echo
+          if [ -f apk-out/l4d1-debug.apk ]; then
+            echo "**Debug APK**: \`apk-out/l4d1-debug.apk\` ($(wc -c <apk-out/l4d1-debug.apk | tr -d ' ') bytes)."
+            echo
+            echo "Copy it to the phone, open it, and launch **L4D1 debug**: it loads every"
+            echo "module it finds and reports how far it gets, on screen and in"
+            echo "\`files/probe.log\`."
+            echo
+          fi
           echo "Install on a device with:"
           echo '```sh'
           echo "python3 -m l4d1ctl module install --from <unzipped artifact> --force"

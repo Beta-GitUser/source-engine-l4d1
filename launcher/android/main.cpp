@@ -12,6 +12,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 */
 
+#include <stdint.h> // intptr_t, used by the debug probe's handle marshalling
 #include <stdio.h>
 #include <string.h>
 #include <dlfcn.h>
@@ -46,6 +47,62 @@ DLL_EXPORT void Java_com_valvesoftware_ValveActivity2_setArgs(JNIEnv *env, jclas
 {
 	strncpy( java_args, env->GetStringUTFChars(str, NULL), sizeof( java_args ) - 1 );
 	java_args[sizeof( java_args ) - 1] = '\0';
+}
+
+// ---------------------------------------------------------------------------
+// Debug probe used by launcher/android/apk (ValveActivity2).
+//
+// An unrooted device cannot run a bare .so, so the modules are exercised from
+// inside an installed package. These three functions are the whole native
+// surface: load a library by path, ask it for an interface, report the last
+// dlopen/dlsym error. Anything more elaborate would put engine code between the
+// test and the report, and a crash there is exactly what the probe is looking
+// for.
+// ---------------------------------------------------------------------------
+
+DLL_EXPORT jstring Java_com_valvesoftware_ValveActivity2_nativeLastError( JNIEnv *env, jclass *clazz )
+{
+	// dlerror() clears the error when read, so callers must ask immediately.
+	const char *error = dlerror();
+	return env->NewStringUTF( error ? error : "" );
+}
+
+DLL_EXPORT jlong Java_com_valvesoftware_ValveActivity2_nativeLoadLibrary( JNIEnv *env, jclass *clazz, jstring path )
+{
+	const char *name = env->GetStringUTFChars( path, NULL );
+	dlerror(); // clear stale state so a failure reports its own reason
+	void *handle = dlopen( name, RTLD_NOW | RTLD_GLOBAL );
+	Msg( "probe: dlopen( %s ) -> %p\n", name, handle );
+	env->ReleaseStringUTFChars( path, name );
+	return ( jlong )( intptr_t )handle;
+}
+
+DLL_EXPORT jlong Java_com_valvesoftware_ValveActivity2_nativeCreateInterface( JNIEnv *env, jclass *clazz,
+																				jlong handle, jstring name )
+{
+	typedef void *( *CreateInterfaceFn )( const char *name, int *returnCode );
+
+	void *library = ( void * )( intptr_t )handle;
+	if ( !library )
+	{
+		dlerror();
+		return 0;
+	}
+
+	dlerror();
+	CreateInterfaceFn factory = ( CreateInterfaceFn )dlsym( library, "CreateInterface" );
+	if ( !factory )
+	{
+		Msg( "probe: no CreateInterface in handle %p (%s)\n", library, dlerror() );
+		return 0;
+	}
+
+	const char *interfaceName = env->GetStringUTFChars( name, NULL );
+	int returnCode = 0;
+	void *iface = factory( interfaceName, &returnCode );
+	Msg( "probe: CreateInterface( %s ) -> %p (code %d)\n", interfaceName, iface, returnCode );
+	env->ReleaseStringUTFChars( name, interfaceName );
+	return ( jlong )( intptr_t )iface;
 }
 
 // Builds the engine argv from $APP_DATA_PATH/port.cfg (see launcher/portcore).
