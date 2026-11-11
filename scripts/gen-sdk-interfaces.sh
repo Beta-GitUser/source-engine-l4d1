@@ -16,10 +16,17 @@ TARGET="$ROOT/l4d1ctl/mine.py"
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 
-grep -rhoE '#define[[:space:]]+[A-Za-z0-9_]+_INTERFACE_VERSION[[:space:]]+"[^"]+"' \
-	--include='*.h' "$ROOT/public" "$ROOT/game" 2>/dev/null \
-	| sed -E 's/.*"([^"]+)"/\1/' \
-	| sort -u > "$TMP"
+# Two naming conventions in this tree, and the server side uses the second:
+#   #define VCLIENT_INTERFACE_VERSION   "VClient017"
+#   #define INTERFACEVERSION_SERVERGAMEDLL "ServerGameDLL005"
+# Missing the second family silently hides every server interface, which are
+# exactly the ones the engine checks before it will run a server module.
+{
+	grep -rhoE '#define[[:space:]]+[A-Za-z0-9_]+_INTERFACE_VERSION[[:space:]]+"[^"]+"' \
+		--include='*.h' "$ROOT/public" "$ROOT/game" 2>/dev/null
+	grep -rhoE '#define[[:space:]]+INTERFACEVERSION_[A-Za-z0-9_]+[[:space:]]+"[^"]+"' \
+		--include='*.h' "$ROOT/public" "$ROOT/game" 2>/dev/null
+} | sed -E 's/.*"([^"]+)"/\1/' | sort -u > "$TMP"
 
 count=$(wc -l < "$TMP")
 if [ "$count" -lt 50 ]; then

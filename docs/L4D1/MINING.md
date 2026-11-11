@@ -90,9 +90,16 @@ the next regex change cannot quietly reintroduce them.
 
 ## The diff that matters: this SDK vs the retail build
 
-Every interface string is compared against the 127 versions this tree's own
+Every interface string is compared against the 162 versions this tree's own
 headers declare (`scripts/gen-sdk-interfaces.sh` regenerates the list; a test
-fails if it drifts). The report splits them three ways:
+fails if it drifts). Both naming conventions are read — `VCLIENT_INTERFACE_VERSION`
+and `INTERFACEVERSION_SERVERGAMEDLL` — because the server side uses the second,
+and missing it would hide exactly the interfaces the engine checks before it
+will run a server module.
+
+A family may declare several versions at once (`ServerGameDLL008`, `009`, `010`),
+so a name is a *mismatch* only if it is outside the whole set, not merely "not
+the last one parsed". The report splits them three ways:
 
 - **matching** — same family, same version: nothing to do;
 - **version mismatch** — the module will not load until our headers request the

@@ -235,49 +235,60 @@ def _utf16_runs(blob: bytes, minimum: int) -> Iterator[str]:
 
 # BEGIN GENERATED SDK INTERFACES
 SDK_INTERFACES = frozenset({
-    "ACHIEVEMENTMGR_INTERFACE_VERSION001", "COLORCORRECTION_VERSION_1", "ClientLeafSystem002",
-    "ClientRenderTargets001", "ClientVirtualReality001", "FriendsNET003",
-    "FriendsUser001", "G15_INTERFACE_VERSION001", "GameClientExports001",
+    "ACHIEVEMENTMGR_INTERFACE_VERSION001", "BotManager001", "COLORCORRECTION_VERSION_1",
+    "ClientLeafSystem002", "ClientRenderTargets001", "ClientStats004",
+    "ClientVirtualReality001", "EngineTraceClient003", "EngineTraceServer003",
+    "EntityInfoManager001", "FriendsNET003", "FriendsUser001",
+    "G15_INTERFACE_VERSION001", "GAMEEVENTSMANAGER001", "GAMEEVENTSMANAGER002",
+    "GameClientExports001", "GameInfoManager001", "HLTVDirector001",
+    "HLTVPANEL001", "HLTVServer001", "Hammer001",
     "HapticsInterface001", "IEffects001", "IEngineSoundClient003",
     "IEngineSoundServer003", "IEngineVoice001", "IExternalTest001",
     "IExternalTestInitialize001", "IExternalTestValidation001", "IMaterialProxyFactory001",
-    "IQuickTime002", "IVideoServices002", "InputSystemVersion001",
-    "KeyValuesSystem002", "MDLCache004", "MatSystemSurface008",
-    "MaterialSystemHardwareConfig012", "QueuedLoaderVersion004", "SDLMgrInterface001",
-    "STEAMAPPLIST_INTERFACE_VERSION001", "STEAMAPPS_INTERFACE_VERSION007", "STEAMAPPTICKET_INTERFACE_VERSION001",
-    "STEAMHTMLSURFACE_INTERFACE_VERSION_003", "STEAMHTTP_INTERFACE_VERSION002", "STEAMINVENTORY_INTERFACE_V001",
-    "STEAMMUSICREMOTE_INTERFACE_VERSION001", "STEAMMUSIC_INTERFACE_VERSION001", "STEAMREMOTESTORAGE_INTERFACE_VERSION013",
-    "STEAMSCREENSHOTS_INTERFACE_VERSION002", "STEAMUGC_INTERFACE_VERSION007", "STEAMUNIFIEDMESSAGES_INTERFACE_VERSION001",
-    "STEAMUSERSTATS_INTERFACE_VERSION011", "STEAMVIDEO_INTERFACE_V001", "SceneFileCache002",
-    "ServerList001", "ShaderApi030", "ShaderDevice001",
-    "ShaderDeviceMgr001", "ShaderDynamic001", "ShaderShadow010",
-    "SoundSystem001", "SourceVirtualReality001", "SteamAddOn007",
-    "SteamClient017", "SteamController003", "SteamFriends015",
-    "SteamGameCoordinator001", "SteamGameServer012", "SteamGameServerStats001",
-    "SteamGameStats001", "SteamMatchMaking009", "SteamMatchMakingServers002",
-    "SteamNetworking005", "SteamStreamLauncher001", "SteamUser018",
-    "SteamUtils007", "UnitTestV001", "VAudio002",
-    "VAvi001", "VBAllocTracker001", "VBaseFileSystem011",
-    "VBik001", "VCENTERPRINT002", "VCLIENTENGINETOOLS001",
-    "VCLIENTTOOLS001", "VClient017", "VClientEntityList003",
-    "VClientPrediction001", "VCvarQuery001", "VDataCache003",
-    "VDataModelVersion001", "VDebugOverlay003", "VDmSerializers001",
-    "VDmeMakeFileUtils001", "VENGINETOOL003", "VENGINETOOLFRAMEWORK003",
-    "VEngineClient014", "VEngineCvar004", "VEngineEffects001",
-    "VEngineModel016", "VEngineRandom001", "VEngineRenderView014",
-    "VEngineShadowMgr002", "VFileSystem022", "VGUI_Input005",
-    "VGUI_InputInternal001", "VGUI_Localize005", "VGUI_Panel009",
-    "VGUI_Scheme010", "VGUI_Surface030", "VGUI_System010",
-    "VGUI_ivgui008", "VMDLLIB001", "VMaterialSystem081",
-    "VMaterialSystemStub001", "VModelInfoClient006", "VModelInfoServer004",
-    "VP4001", "VParticleSystemQuery001", "VPhysics031",
-    "VPhysicsCollision007", "VPhysicsDebugOverlay001", "VPhysicsSurfaceProps001",
-    "VProcessUtils001", "VSERVERCHOREOTOOLS001", "VSERVERENGINETOOLS001",
-    "VSERVERTOOLS003", "VShaderUtil001", "VSoundEmitter002",
-    "VStudioDataCache005", "VStudioRender025", "VTOOLDICTIONARY002",
-    "VTOOLFRAMEWORKVERSION002", "XboxSystemInterface001", "_IMaterialProxy003",
-    "_ITextureCompositor000", "launchable_dll_1", "shadercompiledll_0",
-    "vraddll_1",
+    "IQuickTime002", "ISERVERPLUGINCALLBACKS001", "ISERVERPLUGINCALLBACKS002",
+    "ISERVERPLUGINCALLBACKS003", "ISERVERPLUGINHELPERS001", "ISQLWRAPPER001",
+    "IVideoServices002", "InputSystemVersion001", "KeyValuesSystem002",
+    "MDLCache004", "MapData001", "MatSystemSurface008",
+    "MaterialSystemHardwareConfig012", "PlayerInfoManager002", "PluginHelpersCheck001",
+    "QueuedLoaderVersion004", "SDLMgrInterface001", "STEAMAPPLIST_INTERFACE_VERSION001",
+    "STEAMAPPS_INTERFACE_VERSION007", "STEAMAPPTICKET_INTERFACE_VERSION001", "STEAMHTMLSURFACE_INTERFACE_VERSION_003",
+    "STEAMHTTP_INTERFACE_VERSION002", "STEAMINVENTORY_INTERFACE_V001", "STEAMMUSICREMOTE_INTERFACE_VERSION001",
+    "STEAMMUSIC_INTERFACE_VERSION001", "STEAMREMOTESTORAGE_INTERFACE_VERSION013", "STEAMSCREENSHOTS_INTERFACE_VERSION002",
+    "STEAMUGC_INTERFACE_VERSION007", "STEAMUNIFIEDMESSAGES_INTERFACE_VERSION001", "STEAMUSERSTATS_INTERFACE_VERSION011",
+    "STEAMVIDEO_INTERFACE_V001", "SceneFileCache002", "ServerGameClients003",
+    "ServerGameClients004", "ServerGameDLL008", "ServerGameDLL009",
+    "ServerGameDLL010", "ServerGameEnts001", "ServerGameTags001",
+    "ServerList001", "ServerUploadGameStats001", "ShaderApi030",
+    "ShaderDevice001", "ShaderDeviceMgr001", "ShaderDynamic001",
+    "ShaderShadow010", "SoundSystem001", "SourceVirtualReality001",
+    "SpatialPartition001", "StaticPropMgrClient004", "StaticPropMgrServer002",
+    "SteamAddOn007", "SteamClient017", "SteamController003",
+    "SteamFriends015", "SteamGameCoordinator001", "SteamGameServer012",
+    "SteamGameServerStats001", "SteamGameStats001", "SteamMatchMaking009",
+    "SteamMatchMakingServers002", "SteamNetworking005", "SteamStreamLauncher001",
+    "SteamUser018", "SteamUtils007", "UnitTestV001",
+    "VAudio002", "VAvi001", "VBAllocTracker001",
+    "VBaseFileSystem011", "VBik001", "VCENTERPRINT002",
+    "VCLIENTENGINETOOLS001", "VCLIENTTOOLS001", "VClient017",
+    "VClientEntityList003", "VClientPrediction001", "VCvarQuery001",
+    "VDataCache003", "VDataModelVersion001", "VDebugOverlay003",
+    "VDmSerializers001", "VDmeMakeFileUtils001", "VENGINETOOL003",
+    "VENGINETOOLFRAMEWORK003", "VEngineClient014", "VEngineCvar004",
+    "VEngineEffects001", "VEngineModel016", "VEngineRandom001",
+    "VEngineRenderView014", "VEngineServer021", "VEngineServer022",
+    "VEngineServer023", "VEngineShadowMgr002", "VFileSystem022",
+    "VGUI_Input005", "VGUI_InputInternal001", "VGUI_Localize005",
+    "VGUI_Panel009", "VGUI_Scheme010", "VGUI_Surface030",
+    "VGUI_System010", "VGUI_ivgui008", "VMDLLIB001",
+    "VMaterialSystem081", "VMaterialSystemStub001", "VModelInfoClient006",
+    "VModelInfoServer004", "VP4001", "VParticleSystemQuery001",
+    "VPhysics031", "VPhysicsCollision007", "VPhysicsDebugOverlay001",
+    "VPhysicsSurfaceProps001", "VProcessUtils001", "VSERVERCHOREOTOOLS001",
+    "VSERVERENGINETOOLS001", "VSERVERTOOLS003", "VShaderUtil001",
+    "VSoundEmitter002", "VStudioDataCache005", "VStudioRender025",
+    "VTOOLDICTIONARY002", "VTOOLFRAMEWORKVERSION002", "VoiceServer002",
+    "XboxSystemInterface001", "_IMaterialProxy003", "_ITextureCompositor000",
+    "launchable_dll_1", "shadercompiledll_0", "vraddll_1",
 })
 # END GENERATED SDK INTERFACES
 
@@ -297,27 +308,33 @@ def interface_family(name: str) -> Tuple[str, Optional[int]]:
     return family, int(match.group(2))
 
 
-def sdk_versions(names: Iterable[str] = SDK_INTERFACES) -> Dict[str, int]:
-    table: Dict[str, int] = {}
+def sdk_versions(names: Iterable[str] = SDK_INTERFACES) -> Dict[str, List[int]]:
+    """Every version this tree declares, per family.
+
+    Several is normal: the headers keep the older interfaces around for
+    compatibility, so ServerGameDLL has 008, 009 and 010 at once. A module
+    naming any of them is fine; only a version outside the set is a mismatch.
+    """
+    table: Dict[str, Set[int]] = {}
     for name in names:
         family, version = interface_family(name)
         if version is not None:
-            table[family] = version
-    return table
+            table.setdefault(family, set()).add(version)
+    return {family: sorted(versions) for family, versions in table.items()}
 
 
 @dataclass
 class InterfaceAlignment:
     """How a module's interface strings line up with this SDK."""
 
-    known: List[str] = field(default_factory=list)          # same family, same version
-    mismatched: Dict[str, Tuple[str, str]] = field(default_factory=dict)  # family -> (module, sdk)
+    known: List[str] = field(default_factory=list)          # a version this SDK declares
+    mismatched: Dict[str, Tuple[str, List[int]]] = field(default_factory=dict)
     unknown: List[str] = field(default_factory=list)        # not in the SDK at all
 
     def to_dict(self) -> Dict[str, object]:
         return {
             "known": self.known,
-            "mismatched": {family: {"module": pair[0], "sdk": pair[1]}
+            "mismatched": {family: {"module": pair[0], "sdk_versions": pair[1]}
                            for family, pair in self.mismatched.items()},
             "unknown": self.unknown,
         }
@@ -330,10 +347,10 @@ def align_with_sdk(names: Sequence[str], sdk: Iterable[str] = SDK_INTERFACES) ->
         family, version = interface_family(name)
         if family not in table:
             alignment.unknown.append(name)
-        elif version == table[family]:
+        elif version in table[family]:
             alignment.known.append(name)
         else:
-            alignment.mismatched[family] = (name, f"{family}{table[family]:03d}")
+            alignment.mismatched[family] = (name, table[family])
     return alignment
 
 
@@ -581,8 +598,9 @@ def _alignment_lines(alignment: InterfaceAlignment, top: Optional[int]) -> List[
         lines.append("")
         lines.append("    version mismatches - these decide whether the module loads:")
         pairs = sorted(alignment.mismatched.items())
-        for family, (module_name, sdk_name) in (pairs if top is None else pairs[:top]):
-            lines.append(f"      {module_name}  (this SDK declares {sdk_name})")
+        for family, (module_name, versions) in (pairs if top is None else pairs[:top]):
+            declared = ", ".join(f"{family}{version:03d}" for version in versions)
+            lines.append(f"      {module_name}  (this SDK declares {declared})")
         if top is not None and len(pairs) > top:
             lines.append(f"      ... {len(pairs) - top} more")
     if alignment.unknown:

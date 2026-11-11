@@ -452,9 +452,9 @@ class RealSampleTests(unittest.TestCase):
         self.assertIsNotNone(alignment)
         self.assertIn("VClient017", alignment.known)
         # Retail L4D1 wants 006; this SDK's header says 008.
-        module_name, sdk_name = alignment.mismatched["MatSystemSurface"]
+        module_name, sdk_versions = alignment.mismatched["MatSystemSurface"]
         self.assertEqual(module_name, "MatSystemSurface006")
-        self.assertEqual(sdk_name, "MatSystemSurface008")
+        self.assertNotIn(6, sdk_versions)
         self.assertIn("IMATCHEXT_L4D_INTERFACE_001", alignment.unknown)
 
     def test_report_surfaces_mismatches_and_unknowns(self):
@@ -465,8 +465,41 @@ class RealSampleTests(unittest.TestCase):
 
     def test_json_carries_the_alignment(self):
         payload = json.loads(mine.dump_json(self.inventory))
-        self.assertEqual(payload["sdk_alignment"]["mismatched"]["MatSystemSurface"]["module"],
-                         "MatSystemSurface006")
+        mismatch = payload["sdk_alignment"]["mismatched"]["MatSystemSurface"]
+        self.assertEqual(mismatch["module"], "MatSystemSurface006")
+        self.assertNotIn(6, mismatch["sdk_versions"])
+
+
+class SdkVersionSetTests(unittest.TestCase):
+    """Several declared versions per family is normal, not an inconsistency."""
+
+    def test_any_declared_version_counts_as_known(self):
+        for name in ("ServerGameDLL008", "ServerGameDLL009", "ServerGameDLL010"):
+            alignment = mine.align_with_sdk([name])
+            self.assertEqual(alignment.known, [name], name)
+            self.assertEqual(alignment.mismatched, {}, name)
+
+    def test_a_version_outside_the_set_is_a_mismatch(self):
+        alignment = mine.align_with_sdk(["ServerGameDLL011"])
+        module_name, versions = alignment.mismatched["ServerGameDLL"]
+        self.assertEqual(module_name, "ServerGameDLL011")
+        self.assertNotIn(11, versions)
+        self.assertIn(10, versions)
+
+    def test_server_interfaces_are_in_the_generated_list(self):
+        """They are named INTERFACEVERSION_*, not *_INTERFACE_VERSION, and the
+        generator missing them would hide exactly the server-side work."""
+        for family in ("ServerGameDLL", "ServerGameClients", "VEngineServer"):
+            self.assertTrue([name for name in mine.SDK_INTERFACES if name.startswith(family)],
+                            f"{family} missing from the generated list")
+
+    def test_the_report_lists_every_declared_version(self):
+        inventory = mine.Inventory(path="x.dll", machine="i386", bits=32, size=1)
+        inventory.interfaces = ["ServerGameDLL011"]
+        inventory.alignment = mine.align_with_sdk(inventory.interfaces)
+        text = mine.report(inventory, top=10)
+        self.assertIn("ServerGameDLL011", text)
+        self.assertIn("ServerGameDLL008", text)
 
 
 class SdkInterfaceTests(unittest.TestCase):
