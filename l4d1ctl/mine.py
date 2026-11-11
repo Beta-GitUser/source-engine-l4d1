@@ -219,6 +219,125 @@ def _utf16_runs(blob: bytes, minimum: int) -> Iterator[str]:
 
 
 # --------------------------------------------------------------------------
+# Known interface versions
+# --------------------------------------------------------------------------
+#
+# Extracted from this tree's own headers by scripts/gen-sdk-interfaces.sh.
+# Comparing the retail module against it separates three cases that look
+# identical in a raw string dump:
+#
+#   * the module names an interface this SDK also declares, at the same
+#     version  -> nothing to do;
+#   * same family, different version -> the module will refuse to load unless
+#     our headers request exactly the version the retail build asks for;
+#   * no such family here -> an L4D-only interface, i.e. work this tree has
+#     never had.
+
+# BEGIN GENERATED SDK INTERFACES
+SDK_INTERFACES = frozenset({
+    "ACHIEVEMENTMGR_INTERFACE_VERSION001", "COLORCORRECTION_VERSION_1", "ClientLeafSystem002",
+    "ClientRenderTargets001", "ClientVirtualReality001", "FriendsNET003",
+    "FriendsUser001", "G15_INTERFACE_VERSION001", "GameClientExports001",
+    "HapticsInterface001", "IEffects001", "IEngineSoundClient003",
+    "IEngineSoundServer003", "IEngineVoice001", "IExternalTest001",
+    "IExternalTestInitialize001", "IExternalTestValidation001", "IMaterialProxyFactory001",
+    "IQuickTime002", "IVideoServices002", "InputSystemVersion001",
+    "KeyValuesSystem002", "MDLCache004", "MatSystemSurface008",
+    "MaterialSystemHardwareConfig012", "QueuedLoaderVersion004", "SDLMgrInterface001",
+    "STEAMAPPLIST_INTERFACE_VERSION001", "STEAMAPPS_INTERFACE_VERSION007", "STEAMAPPTICKET_INTERFACE_VERSION001",
+    "STEAMHTMLSURFACE_INTERFACE_VERSION_003", "STEAMHTTP_INTERFACE_VERSION002", "STEAMINVENTORY_INTERFACE_V001",
+    "STEAMMUSICREMOTE_INTERFACE_VERSION001", "STEAMMUSIC_INTERFACE_VERSION001", "STEAMREMOTESTORAGE_INTERFACE_VERSION013",
+    "STEAMSCREENSHOTS_INTERFACE_VERSION002", "STEAMUGC_INTERFACE_VERSION007", "STEAMUNIFIEDMESSAGES_INTERFACE_VERSION001",
+    "STEAMUSERSTATS_INTERFACE_VERSION011", "STEAMVIDEO_INTERFACE_V001", "SceneFileCache002",
+    "ServerList001", "ShaderApi030", "ShaderDevice001",
+    "ShaderDeviceMgr001", "ShaderDynamic001", "ShaderShadow010",
+    "SoundSystem001", "SourceVirtualReality001", "SteamAddOn007",
+    "SteamClient017", "SteamController003", "SteamFriends015",
+    "SteamGameCoordinator001", "SteamGameServer012", "SteamGameServerStats001",
+    "SteamGameStats001", "SteamMatchMaking009", "SteamMatchMakingServers002",
+    "SteamNetworking005", "SteamStreamLauncher001", "SteamUser018",
+    "SteamUtils007", "UnitTestV001", "VAudio002",
+    "VAvi001", "VBAllocTracker001", "VBaseFileSystem011",
+    "VBik001", "VCENTERPRINT002", "VCLIENTENGINETOOLS001",
+    "VCLIENTTOOLS001", "VClient017", "VClientEntityList003",
+    "VClientPrediction001", "VCvarQuery001", "VDataCache003",
+    "VDataModelVersion001", "VDebugOverlay003", "VDmSerializers001",
+    "VDmeMakeFileUtils001", "VENGINETOOL003", "VENGINETOOLFRAMEWORK003",
+    "VEngineClient014", "VEngineCvar004", "VEngineEffects001",
+    "VEngineModel016", "VEngineRandom001", "VEngineRenderView014",
+    "VEngineShadowMgr002", "VFileSystem022", "VGUI_Input005",
+    "VGUI_InputInternal001", "VGUI_Localize005", "VGUI_Panel009",
+    "VGUI_Scheme010", "VGUI_Surface030", "VGUI_System010",
+    "VGUI_ivgui008", "VMDLLIB001", "VMaterialSystem081",
+    "VMaterialSystemStub001", "VModelInfoClient006", "VModelInfoServer004",
+    "VP4001", "VParticleSystemQuery001", "VPhysics031",
+    "VPhysicsCollision007", "VPhysicsDebugOverlay001", "VPhysicsSurfaceProps001",
+    "VProcessUtils001", "VSERVERCHOREOTOOLS001", "VSERVERENGINETOOLS001",
+    "VSERVERTOOLS003", "VShaderUtil001", "VSoundEmitter002",
+    "VStudioDataCache005", "VStudioRender025", "VTOOLDICTIONARY002",
+    "VTOOLFRAMEWORKVERSION002", "XboxSystemInterface001", "_IMaterialProxy003",
+    "_ITextureCompositor000", "launchable_dll_1", "shadercompiledll_0",
+    "vraddll_1",
+})
+# END GENERATED SDK INTERFACES
+
+_TRAILING_VERSION = re.compile(r"^(.*?)_?(?:V)?(\d{3})$")
+
+
+def interface_family(name: str) -> Tuple[str, Optional[int]]:
+    """Split an interface string into (family, version).
+
+    ``MatSystemSurface006`` -> ("MatSystemSurface", 6).
+    ``STEAMAPPS_INTERFACE_VERSION003`` -> ("STEAMAPPS_INTERFACE_VERSION", 3).
+    """
+    match = _TRAILING_VERSION.match(name)
+    if not match:
+        return name, None
+    family = match.group(1).rstrip("_")
+    return family, int(match.group(2))
+
+
+def sdk_versions(names: Iterable[str] = SDK_INTERFACES) -> Dict[str, int]:
+    table: Dict[str, int] = {}
+    for name in names:
+        family, version = interface_family(name)
+        if version is not None:
+            table[family] = version
+    return table
+
+
+@dataclass
+class InterfaceAlignment:
+    """How a module's interface strings line up with this SDK."""
+
+    known: List[str] = field(default_factory=list)          # same family, same version
+    mismatched: Dict[str, Tuple[str, str]] = field(default_factory=dict)  # family -> (module, sdk)
+    unknown: List[str] = field(default_factory=list)        # not in the SDK at all
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "known": self.known,
+            "mismatched": {family: {"module": pair[0], "sdk": pair[1]}
+                           for family, pair in self.mismatched.items()},
+            "unknown": self.unknown,
+        }
+
+
+def align_with_sdk(names: Sequence[str], sdk: Iterable[str] = SDK_INTERFACES) -> InterfaceAlignment:
+    table = sdk_versions(sdk)
+    alignment = InterfaceAlignment()
+    for name in names:
+        family, version = interface_family(name)
+        if family not in table:
+            alignment.unknown.append(name)
+        elif version == table[family]:
+            alignment.known.append(name)
+        else:
+            alignment.mismatched[family] = (name, f"{family}{table[family]:03d}")
+    return alignment
+
+
+# --------------------------------------------------------------------------
 # Classification
 # --------------------------------------------------------------------------
 #
@@ -227,12 +346,19 @@ def _utf16_runs(blob: bytes, minimum: int) -> Iterator[str]:
 # kind, with counts that say which ones matter. False positives are cheap;
 # missing an entire category is not.
 
-_INTERFACE_RE = re.compile(r"^[A-Z][A-Za-z0-9_]{2,}(0\d{2}|Version\d+|\d{3})$")
+# Valve interface strings end in a three-digit version written 0xx (VClient017,
+# MDLCache004) or in ``VersionNNN``. The version must not be the tail of a
+# longer number: XM1014 ends in "014" and ABGR8888 in "888", and both are
+# animation-activity and image-format enums, not interfaces.
+_INTERFACE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?<![0-9])(?:0\d{2}|Version\d{3})$")
 _NETPROP_RE = re.compile(r"^m_[A-Za-z][A-Za-z0-9_]*$")
 _DATATABLE_RE = re.compile(r"^DT_[A-Za-z][A-Za-z0-9_]*$")
-_ASSET_RE = re.compile(r"^[\w./\\ -]{1,200}\.(vmt|vtf|mdl|vvd|vtx|phy|wav|mp3|pcf|vcd|"
-                       r"txt|res|cfg|vdf|bsp|nav|ain|lod|ani|vfe|pdb|dll|so|dylib|gma|vpk)$",
+# No whitespace: a sentence that happens to end in ".txt" is not an asset path.
+# No dll/so/exe either - those are system libraries, not game content.
+_ASSET_RE = re.compile(r"^[\w./\\-]{1,200}\.(vmt|vtf|mdl|vvd|vtx|phy|wav|mp3|pcf|vcd|"
+                       r"txt|res|cfg|vdf|bsp|nav|ain|lod|ani|vfe|gma|vpk)$",
                        re.IGNORECASE)
+_LOWER_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{2,63}$")
 
 # Convar families. Source convars are overwhelmingly prefix-organised, and the
@@ -275,6 +401,7 @@ class Inventory:
     assets: List[str] = field(default_factory=list)
     identifiers: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    alignment: Optional["InterfaceAlignment"] = None
 
     def buckets(self) -> Dict[str, List[str]]:
         return {
@@ -298,24 +425,34 @@ class Inventory:
             "warnings": list(self.warnings),
         }
         payload.update(self.buckets())
+        if self.alignment is not None:
+            payload["sdk_alignment"] = self.alignment.to_dict()
         return payload
 
 
 def _looks_like_entity(text: str) -> bool:
-    lowered = text.lower()
-    if lowered in ENTITY_WORDS:
-        return True
-    if not lowered.startswith(ENTITY_PREFIXES):
+    """Entity classnames are lowercase snake_case.
+
+    Capitalised matches ("Boomer", "Tank") are display names and localisation
+    keys - real, but not classnames - so they stay in identifiers. Enum-ish
+    ALL_CAPS tokens (ITEM_FLAG_*, AMMO_TYPE_*) are likewise not entities.
+    """
+    if not _LOWER_NAME_RE.match(text):
         return False
-    return "_" in lowered or lowered in ENTITY_WORDS
+    if text in ENTITY_WORDS:
+        return True
+    if not text.startswith(ENTITY_PREFIXES):
+        return False
+    return "_" in text
 
 
 def _looks_like_convar(text: str) -> bool:
-    lowered = text.lower()
-    if lowered.startswith(CONVAR_PREFIXES):
-        # A convar name is one token: no spaces, no path separators.
-        return not any(char in text for char in " ./\\")
-    return False
+    """Convar names are lowercase, single-token, and prefix-organised."""
+    if not _LOWER_NAME_RE.match(text):
+        return False
+    if not text.startswith(CONVAR_PREFIXES):
+        return False
+    return len(text) >= 4 and not text.endswith("_")
 
 
 def classify(pe: PortableExecutable, minimum: int = 4) -> Inventory:
@@ -359,6 +496,8 @@ def classify(pe: PortableExecutable, minimum: int = 4) -> Inventory:
     inventory.assets = sorted(candidates["assets"])
     inventory.identifiers = sorted(candidates["identifiers"])
 
+    if inventory.interfaces:
+        inventory.alignment = align_with_sdk(inventory.interfaces)
     inventory.warnings.extend(_sanity_warnings(pe, len(seen), inventory))
     return inventory
 
@@ -426,11 +565,39 @@ def report(inventory: Inventory, top: Optional[int] = 40) -> str:
                 lines.append(f"    {item}")
             if top is not None and len(items) > top:
                 lines.append(f"    ... {len(items) - top} more (--top 0 for all, --json for everything)")
+        if name == "interfaces" and inventory.alignment is not None:
+            lines.extend(_alignment_lines(inventory.alignment, top))
         lines.append("")
 
     other = len(inventory.identifiers)
     lines.append(f"identifiers: {other} others not shown (--json to dump, or --bucket identifiers)")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _alignment_lines(alignment: InterfaceAlignment, top: Optional[int]) -> List[str]:
+    """The part worth reading: what this module wants that we do not provide."""
+    lines: List[str] = []
+    if alignment.mismatched:
+        lines.append("")
+        lines.append("    version mismatches - these decide whether the module loads:")
+        pairs = sorted(alignment.mismatched.items())
+        for family, (module_name, sdk_name) in (pairs if top is None else pairs[:top]):
+            lines.append(f"      {module_name}  (this SDK declares {sdk_name})")
+        if top is not None and len(pairs) > top:
+            lines.append(f"      ... {len(pairs) - top} more")
+    if alignment.unknown:
+        lines.append("")
+        lines.append(f"    not declared by this SDK ({len(alignment.unknown)}) "
+                     f"- L4D-only, work this tree has never had:")
+        unknown = alignment.unknown if top is None else alignment.unknown[:top]
+        for name in unknown:
+            lines.append(f"      {name}")
+        if top is not None and len(alignment.unknown) > top:
+            lines.append(f"      ... {len(alignment.unknown) - top} more")
+    if alignment.known:
+        lines.append("")
+        lines.append(f"    {len(alignment.known)} match this SDK exactly")
+    return lines
 
 
 def dump_json(inventory: Inventory) -> str:

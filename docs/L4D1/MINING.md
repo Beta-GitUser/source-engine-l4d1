@@ -71,6 +71,39 @@ Exit codes: `0` read at least one file, `1` a file was missing or not a PE,
 The classifiers are filters, not proofs: a name can be misfiled, and a few
 thousand candidates is the intended output. Read them, don't parse them.
 
+## Reading the first real run
+
+A first pass against retail L4D1 `client.dll` (5.8 MB, 32-bit) is instructive
+about what the filters do and do not promise:
+
+| Looked like | Was really | Fix |
+| --- | --- | --- |
+| `ABGR8888`, `BGR565`, `IMAGE_FORMAT_UVLX8888` | image-format enums | interface versions must end in `0xx`, not any three digits |
+| `ACT_PRIMARYATTACK_XM1014`, `EjectBrass_556` | animation activity names | the three digits must not be the tail of a longer number |
+| `Boomer`, `TANK`, `ITEM_FLAG_EXHAUSTIBLE` | display names, enum flags | entity classnames are lowercase snake_case |
+| `Mp_3`, `R_SHOULDER`, `VGui_DrawHud` | `Mp_`/`R_` prefix collisions | convars are lowercase |
+| `Invalid surface property. …surfaceproperties_manifest.txt` | a sentence | asset paths contain no spaces |
+| `ADVAPI32.dll`, `KERNEL32.DLL` | import-table noise | not assets; dropped |
+
+Each of those is now a row in `l4d1ctl/tests/fixtures/mine_l4d1_sample.txt`, so
+the next regex change cannot quietly reintroduce them.
+
+## The diff that matters: this SDK vs the retail build
+
+Every interface string is compared against the 127 versions this tree's own
+headers declare (`scripts/gen-sdk-interfaces.sh` regenerates the list; a test
+fails if it drifts). The report splits them three ways:
+
+- **matching** — same family, same version: nothing to do;
+- **version mismatch** — the module will not load until our headers request the
+  version the retail build asks for. On the first real run, `MatSystemSurface006`
+  against this SDK's `008` and `MaterialSystemHardwareConfig013` against `012`;
+- **unknown** — no such family here, i.e. L4D-only interfaces such as
+  `IMATCHEXT_L4D_INTERFACE_001`. These are the work the SDK has never had.
+
+The middle category is the one that decides whether the port runs at all — it is
+cheap to mine and expensive to discover at launch ("Your client is out of date").
+
 ## Using the output
 
 Do not commit the inventory wholesale. Commit the *conclusions* — the interface

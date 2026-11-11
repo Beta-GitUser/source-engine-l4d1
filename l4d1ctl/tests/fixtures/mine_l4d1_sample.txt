@@ -1,0 +1,54 @@
+# name<TAB>bucket, taken from a real run against retail L4D1 client.dll
+# 'none' means the string should not survive classification at all.
+# Import-table names (.dll) are dropped rather than filed as identifiers.
+interfaces	VClient017
+interfaces	GameMovement001
+interfaces	MDLCache004
+interfaces	MatSystemSurface006
+interfaces	MaterialSystemHardwareConfig013
+interfaces	InputSystemVersion001
+interfaces	ClientLeafSystem002
+interfaces	GameClientExports001
+interfaces	QueuedLoaderVersion001
+interfaces	STEAMAPPS_INTERFACE_VERSION003
+interfaces	GMATCHFRAMEWORK_001
+interfaces	IMATCHEXT_L4D_INTERFACE_001
+interfaces	G15_INTERFACE_VERSION001
+interfaces	IEngineSoundClient003
+identifiers	ABGR8888
+identifiers	ARGB8888
+identifiers	BGR565
+identifiers	IMAGE_FORMAT_UVLX8888
+identifiers	ACT_PRIMARYATTACK_XM1014
+identifiers	EjectBrass_556
+datatables	DT_BasePlayer
+datatables	DT_Boomer
+netprops	m_Collision
+netprops	m_Flags
+netprops	m_ArmorValue
+convars	cl_bob
+convars	cl_anglespeedkey
+convars	ai_debug_shoot_positions
+convars	anim_framerate
+convars	cl_addon_fade_max
+identifiers	Demo_Polish_Config
+identifiers	Mp_3
+identifiers	R_SHOULDER
+identifiers	VGui_DrawHud
+none	Mp_^3
+none	R_V?
+identifiers	Boomer
+identifiers	BOOMER
+identifiers	Tank
+identifiers	AMMO_TYPE_SMG
+identifiers	ITEM_FLAG_EXHAUSTIBLE
+identifiers	AMMO_CARRIED_ITEM
+entities	infected
+entities	weapon_smg
+entities	prop_physics
+assets	Resource/UI/HUD/BoomerHealth.res
+assets	Resource/ClientScheme.res
+assets	materials/models/survivors/namvet.vmt
+none	ADVAPI32.dll
+none	KERNEL32.DLL
+none	Invalid surface property.  Double-check surfaceproperties_manifest.txt

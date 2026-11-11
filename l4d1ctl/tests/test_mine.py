@@ -381,3 +381,107 @@ def stdout_payload(text):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RealSampleTests(unittest.TestCase):
+    """Regressions from a real run against retail L4D1 client.dll.
+
+    l4d1ctl/tests/fixtures/mine_l4d1_sample.txt holds strings copied out of that
+    report, each tagged with the bucket it belongs in, or "none" for strings
+    that should not survive classification. The junk in that first run was not
+    random - image formats ending in digits, ALL_CAPS enum tokens, capitalised
+    display names, sentences ending in ".txt" - so each class gets a case.
+    """
+
+    FIXTURE = Path(__file__).resolve().parent / "fixtures" / "mine_l4d1_sample.txt"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = []
+        for line in cls.FIXTURE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            bucket, name = line.split("\t")
+            cls.rows.append((bucket, name))
+        cls.payload = "\n".join(name for _, name in cls.rows).encode() + b"\n"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        path = self.tmp / "client.dll"
+        path.write_bytes(build_pe([line.encode() for line in
+                                   self.payload.decode().splitlines() if line]))
+        self.inventory = mine.mine(path)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def bucket_of(self, name):
+        for bucket, items in self.inventory.buckets().items():
+            if name in items:
+                return bucket
+        return "none"
+
+    def test_every_row_lands_in_its_bucket(self):
+        wrong = [(bucket, name, self.bucket_of(name))
+                 for bucket, name in self.rows if self.bucket_of(name) != bucket]
+        self.assertEqual(wrong, [], "bucket\tname\tlanded_in")
+
+    def test_image_formats_are_not_interfaces(self):
+        for name in ("ABGR8888", "ARGB8888", "BGR565", "IMAGE_FORMAT_UVLX8888"):
+            self.assertNotIn(name, self.inventory.interfaces)
+
+    def test_animation_activities_are_not_interfaces(self):
+        self.assertNotIn("ACT_PRIMARYATTACK_XM1014", self.inventory.interfaces)
+        self.assertNotIn("EjectBrass_556", self.inventory.interfaces)
+
+    def test_sentences_are_not_assets(self):
+        self.assertFalse(any(" " in asset for asset in self.inventory.assets))
+
+    def test_system_libraries_are_not_assets(self):
+        for name in ("ADVAPI32.dll", "KERNEL32.DLL"):
+            self.assertNotIn(name, self.inventory.assets)
+
+    def test_capitalised_display_names_are_not_entities(self):
+        for name in ("Boomer", "BOOMER", "Tank"):
+            self.assertNotIn(name, self.inventory.entities)
+
+    def test_sdk_alignment_is_computed(self):
+        alignment = self.inventory.alignment
+        self.assertIsNotNone(alignment)
+        self.assertIn("VClient017", alignment.known)
+        # Retail L4D1 wants 006; this SDK's header says 008.
+        module_name, sdk_name = alignment.mismatched["MatSystemSurface"]
+        self.assertEqual(module_name, "MatSystemSurface006")
+        self.assertEqual(sdk_name, "MatSystemSurface008")
+        self.assertIn("IMATCHEXT_L4D_INTERFACE_001", alignment.unknown)
+
+    def test_report_surfaces_mismatches_and_unknowns(self):
+        text = mine.report(self.inventory, top=5)
+        self.assertIn("version mismatches", text)
+        self.assertIn("MatSystemSurface006", text)
+        self.assertIn("L4D-only", text)
+
+    def test_json_carries_the_alignment(self):
+        payload = json.loads(mine.dump_json(self.inventory))
+        self.assertEqual(payload["sdk_alignment"]["mismatched"]["MatSystemSurface"]["module"],
+                         "MatSystemSurface006")
+
+
+class SdkInterfaceTests(unittest.TestCase):
+    def test_generated_list_is_not_empty(self):
+        self.assertGreater(len(mine.SDK_INTERFACES), 100)
+
+    def test_generated_list_is_current(self):
+        """mine.py must match the headers; scripts/gen-sdk-interfaces.sh owns it."""
+        result = subprocess.run(["sh", str(ROOT / "scripts" / "gen-sdk-interfaces.sh"), "--check"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0,
+                         result.stdout + result.stderr + "\n(run scripts/gen-sdk-interfaces.sh)")
+
+    def test_version_split(self):
+        self.assertEqual(mine.interface_family("MatSystemSurface006"), ("MatSystemSurface", 6))
+        self.assertEqual(mine.interface_family("GMATCHFRAMEWORK_001"), ("GMATCHFRAMEWORK", 1))
+        self.assertEqual(mine.interface_family("VClient017"), ("VClient", 17))
+        self.assertEqual(mine.interface_family("NotAnInterface"), ("NotAnInterface", None))
