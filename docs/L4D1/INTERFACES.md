@@ -17,6 +17,9 @@ this page stops agreeing with them.
 Totals: client 77 interfaces (50 match, 19 mismatch, 8 unknown);
 server 78 (48 match, 20 mismatch, 10 unknown).
 
+Decisions taken *because* of these numbers - which interfaces we stub, which we
+match, which we skip - are tracked in [DEVIATIONS.md](DEVIATIONS.md).
+
 ## What a version mismatch means — and does not
 
 A mismatch means "if the retail module were loaded into this engine, it would ask
