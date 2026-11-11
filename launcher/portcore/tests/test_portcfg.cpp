@@ -23,7 +23,7 @@ int g_checks = 0;
 		if ( !( condition ) )                                                        \
 		{                                                                            \
 			++g_failures;                                                            \
-			std::printf( "FAIL %s:%d  %s\n", __FILE__, __LINE__, #condition );        \
+			printf( "FAIL %s:%d  %s\n", __FILE__, __LINE__, #condition );        \
 		}                                                                            \
 	} while ( 0 )
 
@@ -34,7 +34,7 @@ int g_checks = 0;
 		if ( !( ( actual ) == ( expected ) ) )                                        \
 		{                                                                             \
 			++g_failures;                                                             \
-			std::printf( "FAIL %s:%d  %s == %s\n", __FILE__, __LINE__, #actual,        \
+			printf( "FAIL %s:%d  %s == %s\n", __FILE__, __LINE__, #actual,        \
 			             #expected );                                                  \
 		}                                                                             \
 	} while ( 0 )
@@ -277,9 +277,9 @@ int main()
 
 	if ( g_failures == 0 )
 	{
-		std::printf( "portcore: %d checks passed\n", g_checks );
+		printf( "portcore: %d checks passed\n", g_checks );
 		return 0;
 	}
-	std::printf( "portcore: %d/%d checks failed\n", g_failures, g_checks );
+	printf( "portcore: %d/%d checks failed\n", g_failures, g_checks );
 	return 1;
 }

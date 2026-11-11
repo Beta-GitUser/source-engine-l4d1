@@ -244,6 +244,7 @@ dropped - are in [THIRDPARTY.md](THIRDPARTY.md).
 | link error mentioning `gnustl_static` | NDK too new for the hardcoded gnu-libstdc++ paths |
 | `undefined reference to 'glGenFramebuffers'` / `AAsset_seek64` | linking `libSDL2.so` without `-lGLESv2 -landroid`; `xcompile.py` now adds the Android platform libs |
 | `Unknown NDK revision: 27` | an inherited NDK won; the script now rejects unsupported revisions and fetches `NDK_VERSION` |
+| `'stoi' is not a member of 'std'` / `'snprintf' is not a member of 'std'` | GCC 4.9 does not pull `<string>` in transitively, and bionic need not put `snprintf` in `std::`. Include what you use; call C functions unqualified. `l4d1ctl/tests/test_cxx_hygiene.py` enforces both |
 | `undefined reference to '__sync_bool_compare_and_swap_16'` | 16-byte CAS on AArch64; provided by `tier0/threadtools.cpp` via LDXP/STXP |
 | `ld: cannot find -lrt` in the **configure** log | not a link failure: `check_deps()` probes `lib='rt'`, which cannot exist on bionic. Now skipped for Android (`wscript`), and `LIB_RT` is emptied so no target can request it |
 | `undefined reference to 'fprintf@LIBC'` / `read@LIBC` | the prebuilt SDL2 was linked against a differently versioned libc stub; `xcompile.py` now passes `-Wl,--allow-shlib-undefined` (the device's libc resolves them at runtime). The real fix is rebuilding SDL2 for this NDK |

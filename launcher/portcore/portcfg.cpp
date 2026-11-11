@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <fstream>
 #include <sstream>
+#include <string>
 
 namespace portcore
 {
@@ -443,7 +444,7 @@ bool BuildLaunchArgv( const LaunchOptions &options,
 		if ( error )
 		{
 			char buffer[128];
-			std::snprintf( buffer, sizeof( buffer ), "%d argument(s) dropped: argv limit is %d",
+			snprintf( buffer, sizeof( buffer ), "%d argument(s) dropped: argv limit is %d",
 			               dropped, max_args );
 			*error = buffer;
 		}
