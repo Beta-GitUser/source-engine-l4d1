@@ -29,8 +29,15 @@ engine, collects the libraries, and packages `l4d1-debug.apk` on the end. All
 three artifacts are published — `android-aarch64-debug-apk` (181 MB),
 `android-aarch64-libraries` (108 MB), `android-aarch64-logs` (9 MB).
 
-The APK step succeeding means the whole packaging path ran: `aapt`, `d8`,
-`zipalign`, `apksigner sign`, and the script's own `apksigner verify`. That last
+Run [43031993188](https://github.com/Beta-GitUser/source-engine-l4d1/actions/runs/43031993188)
+(commit `fa3f697`) is the first packaging run that succeeded *and* passed the
+installability check, after two failures: the dex staged one directory too deep,
+then the newest build-tools paired with the image's default JDK 11. Its artifacts
+are `android-aarch64-debug-apk` (181 MB), `android-aarch64-libraries` (108 MB),
+`android-aarch64-apk-log` and `android-aarch64-logs`.
+
+The earlier APK step succeeded too, and meant less than it looked: `aapt`, `d8`,
+`zipalign`, `apksigner sign` and `apksigner verify` all reported success. The last
 one was not enough: the package signed perfectly and then refused to install —
 *"package appears to be invalid"* — because `classes.dex` had been staged into
 `dex/` instead of the archive root, and nothing in the chain asks where the dex
