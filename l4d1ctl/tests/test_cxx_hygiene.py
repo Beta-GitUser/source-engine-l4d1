@@ -62,6 +62,26 @@ C_LIBRARY_NAMES = ("snprintf", "printf", "sprintf", "memcpy", "memset", "strlen"
                    "strcmp", "strcpy", "atoi", "atof", "strtol", "strtoul", "malloc",
                    "free", "qsort")
 
+# C++11 library additions that the NDK r10e libstdc++ does not provide. The
+# language standard comes from the toolchain, not from us, so the launcher code
+# stays on facilities that exist in both worlds: strtol instead of stoi, a
+# fixed buffer instead of to_string, and so on. This is not style - stoi being
+# missing is what failed run 42993727389 after the header fix.
+BANNED_STD_SYMBOLS = {
+    "stoi": "use strtol (see Config::GetInt)",
+    "stol": "use strtol",
+    "stoll": "use strtoll",
+    "stoul": "use strtoul",
+    "stof": "use strtod",
+    "stod": "use strtod",
+    "to_string": "use snprintf into a buffer",
+    "unique_ptr": "use a raw pointer or a plain object",
+    "make_unique": "use a raw pointer or a plain object",
+    "shared_ptr": "use a raw pointer or a plain object",
+    "thread": "not available in this toolchain's STL",
+    "regex": "not available in this toolchain's STL",
+}
+
 SOURCE_GLOBS = ("launcher/**/*.cpp", "launcher/**/*.h")
 
 
@@ -148,6 +168,18 @@ class PortcoreHygieneTests(unittest.TestCase):
                 problems.append(f"{path.relative_to(ROOT)}: std::{symbol} needs {header}")
         self.assertEqual(sorted(set(problems)), [], "\n".join(sorted(set(problems))))
 
+    def test_no_cxx11_only_library_facilities(self):
+        problems = []
+        for path in sources():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            stripped = re.sub(r"//[^\n]*", "", text)
+            for symbol, advice in BANNED_STD_SYMBOLS.items():
+                for match in re.finditer(rf"\bstd::{symbol}\s*[<(:]", stripped):
+                    line = stripped.count("\n", 0, match.start()) + 1
+                    problems.append(f"{path.relative_to(ROOT)}:{line}: std::{symbol} "
+                                    f"is not in the NDK's STL - {advice}")
+        self.assertEqual(problems, [], "\n".join(problems))
+
     def test_c_library_functions_are_unqualified(self):
         problems = []
         for path in sources():
@@ -169,6 +201,10 @@ class CheckerSanityTests(unittest.TestCase):
         text = "void f(char* b){ std::snprintf(b, 1, \"x\"); }\n"
         self.assertEqual(unqualified_calls_through_std(text),
                          [("std::snprintf", 1)])
+
+    def test_detects_a_banned_symbol(self):
+        text = 'int f(){ return std::stoi("1"); }\n'
+        self.assertTrue(re.search(r"\bstd::stoi\s*[<(:]", text))
 
     def test_comments_and_included_symbols_are_fine(self):
         text = ("// std::stoi in a comment is not a use\n"

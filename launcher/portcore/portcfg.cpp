@@ -5,7 +5,10 @@
 #include "portcfg.h"
 
 #include <cctype>
+#include <cerrno>
+#include <climits>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -310,14 +313,18 @@ int Config::GetInt( const std::string &key, int fallback ) const
 	const Node *node = Find( key );
 	if ( node == nullptr || node->IsSection() )
 		return fallback;
-	try
-	{
-		return std::stoi( node->value, nullptr, 0 );
-	}
-	catch ( ... )
-	{
-		return fallback;
-	}
+	// strtol, not std::stoi: the NDK's libstdc++ does not declare the C++11
+	// string conversions, and this file has to build with that toolchain.
+	// Base 0 keeps the previous behaviour (0x10 hex, 010 octal, 10 decimal).
+	const char *begin = node->value.c_str();
+	char *end = nullptr;
+	errno = 0;
+	const long parsed = strtol( begin, &end, 0 );
+	if ( end == begin )
+		return fallback;                       // nothing numeric, as stoi would
+	if ( errno == ERANGE || parsed < INT_MIN || parsed > INT_MAX )
+		return fallback;                       // out of range, as stoi would
+	return static_cast< int >( parsed );
 }
 
 std::vector<std::string> TokenizeCommandLine( const std::string &line )
