@@ -104,6 +104,32 @@ python3 -m l4d1ctl fetch --provider depotdownloader --user <you> \
 `steamcmd` has no depot filter and will pull everything; the dry run says so
 rather than letting you discover it at 90%.
 
+## Bringing the download across from proot
+
+If the depot download runs inside a proot/distro Debian, the files land in the
+proot filesystem, which the Termux side can see but the *Android* side cannot.
+Bridge it once, then work from shared storage:
+
+```sh
+# inside the proot distro, after the download finished
+cp <out>/bin/client.dll <out>/bin/server.dll /sdcard/Download/
+
+# back in Termux
+python3 mine.py /sdcard/Download/client.dll
+```
+
+`l4d1ctl import` understands the shape a depot download produces - the app
+folder with `bin/` next to `left4dead/` - and detects the content level itself,
+so pointing it at `Left 4 Dead/` works as well as `Left 4 Dead/left4dead/`.
+
+Two things it will tell you rather than do silently:
+
+- a **partial** download (only `bin/`) imports nothing, prints that the depot
+  mixup is usually depot 503 vs the content depots, and exits 1;
+- `platform/` is a *sibling* of the content folder, so it is not imported. If
+  the UI later shows missing fonts or platform resources on device, that is the
+  first place to look.
+
 ## On a phone
 
 The tool is standard library only — no `pefile`, no `pip` — so it runs in

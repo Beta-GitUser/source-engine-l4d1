@@ -98,8 +98,7 @@ def cmd_import(args: argparse.Namespace) -> int:
             print(f"source does not exist: {source}", file=sys.stderr)
             return 2
         # Accept either the app folder ("Left 4 Dead") or the content folder.
-        if (source / "left4dead" / "gameinfo.txt").is_file():
-            source = source / "left4dead"
+        source = depot.resolve_content_folder(source)
     else:
         print("pass --source <folder> or --from-steam", file=sys.stderr)
         return 2
@@ -113,6 +112,14 @@ def cmd_import(args: argparse.Namespace) -> int:
     print(f"  {stats.summary()}")
     if not args.dry_run:
         _print_checks(depot.verify_game_dir(paths.gamedir))
+        if stats.copied + stats.linked == 0:
+            print("\nnothing was imported. If you downloaded a single depot, it was "
+                  "probably the binaries-only one (503): it holds bin/client.dll and "
+                  "bin/server.dll, which mining wants but the game does not run on. "
+                  "The game content lives in the content depots - add them, e.g. "
+                  "--depot 501 --depot 502, and import again.",
+                  file=sys.stderr)
+            return 1
     return 0
 
 

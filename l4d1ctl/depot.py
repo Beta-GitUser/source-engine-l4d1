@@ -180,19 +180,43 @@ def _is_excluded(relative: Path) -> bool:
     return relative.suffix.lower() in EXCLUDED_SUFFIXES
 
 
+def resolve_content_folder(source: Path) -> Path:
+    """Accept either an app folder or the content folder inside it.
+
+    Depot downloads and Steam installs both produce ``Left 4 Dead/left4dead/``;
+    a filtered single-depot download may produce neither and just drop ``bin/``
+    where it lands. Returning the input unchanged in that case is deliberate:
+    the caller then imports what it was given, and ``verify_game_dir`` explains
+    the missing content rather than the import failing with nothing to say.
+    """
+    source = Path(source)
+    inner = source / "left4dead"
+    if (inner / "gameinfo.txt").is_file():
+        return inner
+    return source
+
+
 def copy_game_content(source: Path, destination: Path, *, link: bool = False,
                       overwrite: bool = False, dry_run: bool = False,
                       progress: Optional[Callable[[str], None]] = None) -> CopyStats:
     """Copy a Steam install's content folder into ``destination``.
 
-    ``source`` is the ``Left 4 Dead/left4dead`` folder (or any folder with the
-    same layout). With ``link=True`` hardlinks are attempted first, which makes
-    a second copy essentially free on the same filesystem.
+    ``source`` may be the ``Left 4 Dead/left4dead`` content folder or the
+    ``Left 4 Dead`` app folder around it; the level is detected here so every
+    caller (CLI, launcher, tests) gets the same answer. With ``link=True``
+    hardlinks are attempted first, which makes a second copy essentially free on
+    the same filesystem.
     """
-    source = Path(source)
+    source = resolve_content_folder(Path(source))
     destination = Path(destination)
     if not source.is_dir():
         raise FileNotFoundError(f"source content folder not found: {source}")
+
+    if not dry_run:
+        # Create it even when everything below is excluded: a partial depot
+        # import then leaves a directory the verifier can complain about,
+        # instead of "game directory does not exist" masquerading as a crash.
+        destination.mkdir(parents=True, exist_ok=True)
 
     stats = CopyStats()
     for root, dirnames, filenames in os.walk(source):
