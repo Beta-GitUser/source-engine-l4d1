@@ -131,11 +131,22 @@ python3 -m l4d1ctl module install --from out --force             # for the deskt
 python3 -m l4d1ctl module status
 ```
 
-For a **stock phone there is no Android layout to copy into.** A bare `.so` is not
-runnable: the dynamic linker only maps libraries into a process it creates, so
-neither a shell nor a file manager can execute one, and root is what people use to
-work around that. The delivery vehicle is an installed package — see
-[The debug APK](#the-debug-apk).
+For the Android layout you copy the two `.so` files next to the engine on the
+device instead:
+
+```sh
+adb push out/libclient.so out/libserver.so /data/local/tmp/srceng/
+adb shell "cd /data/local/tmp/srceng && ./hl2_linux -game left4dead -nosteam -insecure"
+```
+
+`/data/local/tmp` is writable and executable through `adb`, so this needs no root
+and no package — a USB cable is the whole requirement, which is the situation
+this document assumes.
+
+If the phone is the only machine you have, that paragraph is not available: with
+no `adb` there is no shell that can start a binary, and a bare `.so` cannot be
+started at all, because the dynamic linker only maps libraries into a process it
+creates. That case is what [The debug APK](#the-debug-apk) is for.
 
 ## The debug APK
 
