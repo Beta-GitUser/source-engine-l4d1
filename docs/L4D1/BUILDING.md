@@ -30,8 +30,12 @@ three artifacts are published — `android-aarch64-debug-apk` (181 MB),
 `android-aarch64-libraries` (108 MB), `android-aarch64-logs` (9 MB).
 
 The APK step succeeding means the whole packaging path ran: `aapt`, `d8`,
-`zipalign`, `apksigner sign`, and the script's own `apksigner verify`. The
-*contents* were not inspected from here — GitHub's artifact storage answers this
+`zipalign`, `apksigner sign`, and the script's own `apksigner verify`. That last
+one was not enough: the package signed perfectly and then refused to install —
+*"package appears to be invalid"* — because `classes.dex` had been staged into
+`dex/` instead of the archive root, and nothing in the chain asks where the dex
+is. `scripts/verify-apk.py` now asks that, plus the manifest, the ABI directory,
+entry names and CRC, and `build-apk.sh` fails on its answer. The *contents* were not inspected from here — GitHub's artifact storage answers this
 development sandbox with `EOF`, so the file has to be downloaded from the run page
 and installed to be looked at. Treat the transcript on the phone as the first
 evidence of anything beyond "it packaged".

@@ -12,9 +12,12 @@ checks cover the mistakes that are cheap to catch now and expensive to catch in 
 """
 
 import re
+import sys
 import shutil
 import subprocess
+import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +26,7 @@ JAVA = APK / "src" / "com" / "valvesoftware" / "ValveActivity2.java"
 MANIFEST = APK / "AndroidManifest.xml"
 NATIVE = ROOT / "launcher" / "android" / "main.cpp"
 SCRIPT = ROOT / "scripts" / "build-apk.sh"
+VERIFIER = ROOT / "scripts" / "verify-apk.py"
 
 
 def java_native_methods():
@@ -151,6 +155,138 @@ class PackagingScriptTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "android.yml").read_text(encoding="utf-8")
         self.assertIn("build-apk.sh --libs apk-libs", workflow)
         self.assertIn("android-${{ env.ARCH }}-debug-apk", workflow)
+
+
+def make_apk(path, entries):
+    """entries: {name: bytes} - a stand-in for what aapt + zip produce."""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    return path
+
+
+class VerifyApkTests(unittest.TestCase):
+    """The regression that cost an install attempt.
+
+    The first APK this repository produced signed correctly, passed
+    `apksigner verify`, and then said "package appears to be invalid" on the phone
+    - because classes.dex had been staged into ``dex/`` rather than the root. These
+    tests are the check that was missing.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="apk-test-"))
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def run_verifier(self, entries, *extra):
+        apk = make_apk(self.dir / "test.apk", entries)
+        return subprocess.run([sys.executable, str(VERIFIER), str(apk), *extra],
+                              capture_output=True, text=True)
+
+    def good_entries(self):
+        return {
+            "AndroidManifest.xml": b"binary xml",
+            "classes.dex": b"dex\n035\0",
+            "lib/arm64-v8a/libclient.so": b"\x7fELF",
+            "lib/arm64-v8a/libserver.so": b"\x7fELF",
+        }
+
+    def test_a_correct_package_passes(self):
+        result = self.run_verifier(self.good_entries())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("classes.dex at the root", result.stdout)
+
+    def test_the_exact_bug_is_caught(self):
+        entries = self.good_entries()
+        entries["dex/classes.dex"] = entries.pop("classes.dex")
+        result = self.run_verifier(entries)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("dex/classes.dex", result.stderr)
+        self.assertIn("not at the root", result.stderr)
+
+    def test_missing_code_is_caught(self):
+        entries = self.good_entries()
+        del entries["classes.dex"]
+        result = self.run_verifier(entries)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no classes.dex", result.stderr)
+
+    def test_missing_manifest_is_caught(self):
+        entries = self.good_entries()
+        del entries["AndroidManifest.xml"]
+        result = self.run_verifier(entries)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("AndroidManifest.xml", result.stderr)
+
+    def test_wrong_abi_is_caught(self):
+        result = self.run_verifier(self.good_entries(), "--abi", "armeabi-v7a")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("lib/armeabi-v7a", result.stderr)
+
+    def test_relative_prefix_is_caught(self):
+        entries = self.good_entries()
+        entries["./classes.dex"] = entries.pop("classes.dex")
+        result = self.run_verifier(entries)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("prefix", result.stderr)
+
+    def test_expected_library_count_is_enforced(self):
+        result = self.run_verifier(self.good_entries(), "--expect-libs", "2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_verifier(self.good_entries(), "--expect-libs", "7")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("expected 7", result.stderr)
+
+    def test_a_truncated_file_is_caught(self):
+        apk = make_apk(self.dir / "truncated.apk", self.good_entries())
+        data = apk.read_bytes()
+        apk.write_bytes(data[: len(data) // 2])
+        result = subprocess.run([sys.executable, str(VERIFIER), str(apk)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+
+
+class StagingTests(unittest.TestCase):
+    """Reproduce the packaging step with plain zip, which needs no Android SDK.
+
+    This is the closest thing to an install test available here: it runs the same
+    staging commands the script runs, then asks the verifier - the same question
+    the phone asked.
+    """
+
+    @unittest.skipIf(shutil.which("zip") is None, "no zip")
+    def test_staged_package_passes_verification(self):
+        workdir = Path(tempfile.mkdtemp(prefix="apk-stage-"))
+        self.addCleanup(shutil.rmtree, workdir, True)
+        (workdir / "dex").mkdir()
+        (workdir / "dex" / "classes.dex").write_bytes(b"dex\n035\0")
+        libs = workdir / "libs"
+        libs.mkdir()
+        for name in ("libclient.so", "libserver.so"):
+            (libs / name).write_bytes(b"\x7fELF")
+
+        stage = workdir / "stage"
+        (stage / "lib" / "arm64-v8a").mkdir(parents=True)
+        (stage / "AndroidManifest.xml").write_bytes(b"binary xml")
+        shutil.copy(workdir / "dex" / "classes.dex", stage / "classes.dex")
+        for library in libs.glob("*.so"):
+            shutil.copy(library, stage / "lib" / "arm64-v8a" / library.name)
+
+        # The script's own command, minus aapt having created the file first.
+        files = sorted(str(p.relative_to(stage)) for p in stage.rglob("*") if p.is_file())
+        apk = workdir / "out.apk"
+        subprocess.run(["zip", "-q", "-X", str(apk), "-@"],
+                       input="\n".join(files) + "\n", text=True, cwd=str(stage), check=True)
+        result = subprocess.run([sys.executable, str(VERIFIER), str(apk),
+                                 "--abi", "arm64-v8a", "--expect-libs", "2"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_the_script_stages_the_dex_at_the_root(self):
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('cp "$WORK/dex/classes.dex" "$STAGE/classes.dex"', script)
+        self.assertNotIn('"$STAGE/dex/', script)
+        self.assertIn("verify-apk.py", script)
 
 
 if __name__ == "__main__":

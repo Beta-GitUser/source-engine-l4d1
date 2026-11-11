@@ -132,8 +132,11 @@ UNSIGNED="$WORK/unsigned.apk"
 	--min-sdk-version "$API" -F "$UNSIGNED"
 
 STAGE="$WORK/stage"
-mkdir -p "$STAGE/lib/$ABI" "$STAGE/dex"
-cp "$WORK/dex/classes.dex" "$STAGE/dex/classes.dex"
+mkdir -p "$STAGE/lib/$ABI"
+# At the root, not in a subdirectory. The dex loader only looks at the root, and
+# getting this wrong produces a package that signs and verifies perfectly and then
+# refuses to install ("package appears to be invalid"). This was a real bug here.
+cp "$WORK/dex/classes.dex" "$STAGE/classes.dex"
 copied=0
 for library in "$LIBS"/*.so; do
 	[ -f "$library" ] || continue
@@ -144,7 +147,9 @@ log "packaged $copied native libraries into lib/$ABI/"
 [ "$copied" -gt 0 ] || die "no .so files in $LIBS - did the engine build?"
 
 # Deterministic order, so two builds of the same input differ only in timestamps.
-(cd "$STAGE" && find . -type f | sort | zip -q -X "$UNSIGNED" -@)
+# The sed is belt and braces: zip happens to strip a leading "./" itself, but the
+# entry names are not something to leave to a tool's good manners.
+(cd "$STAGE" && find . -type f | sed 's|^\./||' | sort | zip -q -X "$UNSIGNED" -@)
 
 log "aligning"
 ALIGNED="$WORK/aligned.apk"
@@ -167,6 +172,12 @@ rm -f "$OUT"
 	--ks-pass pass:android --key-pass pass:android --out "$OUT" "$ALIGNED"
 
 "$APKSIGNER" verify "$OUT" >/dev/null || die "the APK does not verify"
+
+# A valid signature says nothing about whether the file will install, as the first
+# APK built here demonstrated. This asks the install question.
+log "checking the package would install"
+python3 "$ROOT/scripts/verify-apk.py" "$OUT" --abi "$ABI" --expect-libs "$copied" \
+	|| die "the package is structurally invalid - see above"
 
 log "$OUT ($(wc -c <"$OUT" | tr -d ' ') bytes)"
 cat <<EOF
