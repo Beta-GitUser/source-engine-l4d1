@@ -322,6 +322,57 @@ class CommandTests(unittest.TestCase):
         self.assertIn("no MZ header", result.stderr)
 
 
+class StandaloneTests(unittest.TestCase):
+    """`mine.py` must work as a single downloaded file: no package, no clone.
+
+    The phone workflow depends on it - Termux, one `curl`, run it. So the test
+    copies the file somewhere unrelated and runs it there with the repository
+    off sys.path.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.script = self.tmp / "mine.py"
+        self.script.write_bytes((ROOT / "l4d1ctl" / "mine.py").read_bytes())
+        self.binary = self.tmp / "client.dll"
+        self.binary.write_bytes(build_pe(STRINGS))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_standalone(self, *args):
+        return subprocess.run(
+            [sys.executable, str(self.script), *args],
+            capture_output=True, text=True, cwd=str(self.tmp),
+        )
+
+    def test_no_package_imports(self):
+        source = (ROOT / "l4d1ctl" / "mine.py").read_text()
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("import ", "from ")) and not stripped.startswith("from __future__"):
+                module = stripped.split()[1].split(".")[0]
+                self.assertIn(module, {
+                    "argparse", "json", "re", "struct", "sys", "dataclasses", "pathlib", "typing",
+                }, f"{stripped!r} is not standard library - the single-file workflow breaks")
+
+    def test_reports_without_the_package(self):
+        result = self.run_standalone("client.dll")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("VClient017", result.stdout)
+
+    def test_bucket_without_the_package(self):
+        result = self.run_standalone("client.dll", "--bucket", "netprops")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split(), ["m_iHealth", "m_vecOrigin"])
+
+    def test_json_without_the_package(self):
+        result = self.run_standalone("client.dll", "--json")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["bits"], 32)
+
+
 def stdout_payload(text):
     """`mine --json` may be preceded by nothing, but tolerate stray output."""
     start = text.index("{") if "{" in text else text.index("[")

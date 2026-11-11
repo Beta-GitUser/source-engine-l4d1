@@ -89,17 +89,46 @@ python3 -m l4d1ctl mine bin/server.dll --bucket netprops  --top 0 > netprops.txt
 then, in the code, work down `interfaces.txt` until the engine stops rejecting
 the module, and use `netprops.txt` as the checklist for `DT_` definitions.
 
+## Which depot
+
+`client.dll` and `server.dll` live in **depot 503** (the Windows content depot),
+which is a few megabytes. Appid 500's general depot is the large one and is not
+what you want when the question is "what does the client declare?".
+
+```sh
+# depotdownloader can restrict to one depot and to a path within it
+python3 -m l4d1ctl fetch --provider depotdownloader --user <you> \
+    --depot 503 --file 'bin/(client|server)\.dll$' --run
+```
+
+`steamcmd` has no depot filter and will pull everything; the dry run says so
+rather than letting you discover it at 90%.
+
 ## On a phone
 
 The tool is standard library only — no `pefile`, no `pip` — so it runs in
-[Termux](https://termux.dev):
+[Termux](https://termux.dev). **You do not need the repository.** Pick whichever
+fits:
 
 ```sh
-pkg install python git
-git clone https://github.com/Beta-GitUser/source-engine-l4d1
+pkg install python
+
+# 1. One file. mine.py has no package imports and its own entry point.
+curl -O https://raw.githubusercontent.com/Beta-GitUser/source-engine-l4d1/\
+arena/410ac3e6-source-engine-l4d1/l4d1ctl/mine.py
+python3 mine.py /sdcard/Download/client.dll
+
+# 2. Just the tooling directory: 2.8 MB instead of a 357 MB working tree.
+git clone --depth 1 --filter=blob:none --sparse \
+    https://github.com/Beta-GitUser/source-engine-l4d1
 cd source-engine-l4d1
+git sparse-checkout set l4d1ctl
 python3 -m l4d1ctl mine /sdcard/Download/client.dll
 ```
+
+A full clone is unnecessary for any of the analysis commands; the engine sources
+are what make it large. (A plain `git clone --depth 1` is ~90 MB of pack — still
+a lot on mobile data.)
 
 The Android engine build still cannot happen on the device (the NDK is an
 x86_64 host toolchain, and the phone has no x86_64 to run it on) — that stays in

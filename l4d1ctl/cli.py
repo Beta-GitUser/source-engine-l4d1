@@ -124,11 +124,13 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     if provider == "steamcmd":
         binary = args.tool or "steamcmd"
         command = depot.steamcmd_command(binary, target, args.user or "", appid=args.appid,
-                                         validate=not args.no_validate, extra=args.extra)
+                                         validate=not args.no_validate, extra=args.extra,
+                                         depots=args.depot)
     elif provider == "depotdownloader":
         binary = args.tool or "DepotDownloader"
         command = depot.depotdownloader_command(binary, target, args.user or "", appid=args.appid,
-                                                validate=not args.no_validate, extra=args.extra)
+                                                validate=not args.no_validate, extra=args.extra,
+                                                depots=args.depot, files=args.files_filter)
     else:
         print(f"unknown provider: {provider}", file=sys.stderr)
         return 2
@@ -151,6 +153,11 @@ def cmd_fetch(args: argparse.Namespace) -> int:
             return 1
 
     target.mkdir(parents=True, exist_ok=True)
+    if args.files_filter and provider == "depotdownloader":
+        filelist = target / "filelist.txt"
+        filelist.write_text(depot.filelist_text(args.files_filter), encoding="utf-8")
+        command.argv.extend(["-filelist", str(filelist)])
+        print(f"  wrote {filelist} ({len(args.files_filter)} pattern(s))")
     code = depot.run_provider(command, execute=True)
     print(f"provider exited with {code}")
     if code == 0:
@@ -523,56 +530,22 @@ def _log_path(paths: PortPaths) -> Path:
 def cmd_mine(args: argparse.Namespace) -> int:
     """Inventory a shipped module: interfaces, netprops, convars, entities.
 
-    Reads *declarations* out of client.dll / server.dll - the things the SDK
-    cannot tell you. It does not recover logic; see docs/L4D1/MINING.md.
+    Thin wrapper: the implementation lives in ``mine.main`` so that
+    ``python3 mine.py client.dll`` works as a single downloaded file, with no
+    package and no clone.
     """
-    top = None if args.top == 0 else args.top
-    status = 0
-    inventories = []
-    for name in args.files:
-        path = Path(name).expanduser()
-        if not path.is_file():
-            print(f"no such file: {path}", file=sys.stderr)
-            status = 1
-            continue
-        try:
-            inventories.append(mine.mine(path, minimum=args.min_length))
-        except mine.NotAPortableExecutable as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            status = 1
-
-    if args.compare:
-        if len(inventories) != 1:
-            print("--compare takes exactly one file plus --compare <other>", file=sys.stderr)
-            return 2
-        other = mine.mine(Path(args.compare).expanduser(), minimum=args.min_length)
-        comparison = mine.compare(inventories[0], other)
-        if args.json:
-            print(json.dumps(comparison.to_dict(), indent=2))
-        else:
-            sys.stdout.write(mine.report_comparison(comparison, top=top))
-        return status
-
+    argv: List[str] = list(args.files)
     if args.json:
-        payload = [inventory.to_dict() for inventory in inventories]
-        print(json.dumps(payload[0] if len(payload) == 1 else payload, indent=2))
-        return status
-
-    for inventory in inventories:
-        if args.bucket:
-            items = inventory.buckets().get(args.bucket, [])
-            shown = items if top is None else items[:top]
-            for item in shown:
-                print(item)
-            if args.bucket not in inventory.buckets():
-                print(f"error: no bucket {args.bucket!r}; try one of "
-                      f"{', '.join(sorted(inventory.buckets()))}", file=sys.stderr)
-                return 2
-            if top is not None and len(items) > top:
-                print(f"... {len(items) - top} more (--top 0 for all)", file=sys.stderr)
-            continue
-        sys.stdout.write(mine.report(inventory, top=top))
-    return status
+        argv.append("--json")
+    if args.bucket:
+        argv.extend(["--bucket", args.bucket])
+    if args.top != 40:
+        argv.extend(["--top", str(args.top)])
+    if args.min_length != 4:
+        argv.extend(["--min-length", str(args.min_length)])
+    if args.compare:
+        argv.extend(["--compare", args.compare])
+    return mine.main(argv)
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -769,6 +742,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--appid", type=int, default=depot.APPID)
     p.add_argument("--no-validate", action="store_true")
     p.add_argument("--extra", nargs=argparse.REMAINDER, default=[], help="extra provider arguments")
+    p.add_argument("--depot", type=int, action="append", default=[],
+                   help="only this depot (repeatable; depotdownloader only). For the shipped "
+                        "modules, 503 carries bin/client.dll and bin/server.dll")
+    p.add_argument("--file", action="append", default=[], dest="files_filter",
+                   help="only paths matching this regex (repeatable; depotdownloader only)")
     p.add_argument("--run", action="store_true", help="actually execute (otherwise dry run)")
     p.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p.set_defaults(func=cmd_fetch)

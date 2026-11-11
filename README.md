@@ -119,7 +119,7 @@ On device, `launcher/android/main.cpp` reads `$APP_DATA_PATH/port.cfg`
 Tooling tests do not need the engine build:
 
 ```sh
-scripts/test-tooling.sh   # 277 python tests + 67 C++ checks
+scripts/test-tooling.sh   # 285 python tests + 67 C++ checks
 ```
 
 # Fork note

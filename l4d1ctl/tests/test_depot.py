@@ -117,6 +117,30 @@ class CommandTests(unittest.TestCase):
         self.assertNotIn("validate", command.argv)
         self.assertEqual(command.argv[-1], "+quit")
 
+    def test_depotdownloader_selects_depots(self):
+        """503 is the Windows content depot carrying client.dll/server.dll; 500 is
+        the large general one. Selecting matters when the link is a phone's."""
+        command = depot.depotdownloader_command("DD", Path("/x"), "me", depots=(503, 504))
+        self.assertEqual(command.argv.count("-depot"), 2)
+        self.assertIn("503", command.argv)
+        self.assertIn("504", command.argv)
+        listing = " ".join(command.argv)
+        self.assertLess(listing.index("-depot"), listing.index("-validate"))
+
+    def test_depotdownloader_without_depots_is_unchanged(self):
+        command = depot.depotdownloader_command("DD", Path("/x"), "me")
+        self.assertNotIn("-depot", command.argv)
+
+    def test_filelist_text_is_one_regex_per_line(self):
+        text = depot.filelist_text(("bin/client\\.dll", "bin/server\\.dll"))
+        self.assertEqual(text.splitlines(), ["bin/client\\.dll", "bin/server\\.dll"])
+        self.assertTrue(text.endswith("\n"))
+
+    def test_steamcmd_says_it_cannot_filter_depots(self):
+        command = depot.steamcmd_command("steamcmd", Path("/x"), "me", depots=(503,))
+        self.assertIn("depotdownloader", " ".join(command.notes))
+        self.assertNotIn("-depot", command.argv)
+
     def test_depotdownloader_command_shape(self):
         command = depot.depotdownloader_command("DepotDownloader", Path("/x"), "me",
                                                 extra=["-depot", "501"])

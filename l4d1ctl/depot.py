@@ -263,35 +263,56 @@ class ProviderCommand:
 
 def steamcmd_command(steamcmd: str, destination: Path, username: str,
                      appid: int = APPID, *, validate: bool = True,
-                     extra: Sequence[str] = ()) -> ProviderCommand:
+                     extra: Sequence[str] = (), depots: Sequence[int] = ()) -> ProviderCommand:
     argv = [steamcmd, "+force_install_dir", str(destination),
             "+login", username, "+app_update", str(appid)]
     if validate:
         argv.append("validate")
     argv.extend(extra)
     argv.append("+quit")
-    return ProviderCommand(
-        "steamcmd",
-        argv,
-        [
-            "steamcmd will ask for the password and Steam Guard code itself.",
-            f"content lands in {destination} (force_install_dir), then copy it out.",
-        ],
-    )
+    notes = [
+        "steamcmd will ask for the password and Steam Guard code itself.",
+        f"content lands in {destination} (force_install_dir), then copy it out.",
+    ]
+    if depots:
+        notes.append(
+            "steamcmd has no depot filter: it downloads every depot of the app. "
+            "Use --provider depotdownloader to fetch only "
+            + ", ".join(str(depot) for depot in depots)
+            + "."
+        )
+    return ProviderCommand("steamcmd", argv, notes)
 
 
 def depotdownloader_command(tool: str, destination: Path, username: str,
                             appid: int = APPID, *, validate: bool = True,
-                            extra: Sequence[str] = ()) -> ProviderCommand:
+                            extra: Sequence[str] = (), depots: Sequence[int] = (),
+                            files: Sequence[str] = ()) -> ProviderCommand:
+    """Build a DepotDownloader invocation.
+
+    ``depots`` restricts the download to specific depots, which is the
+    difference between a couple of megabytes and a hundred: for reading
+    declarations out of the shipped modules, depot 503 (the Windows content)
+    carries ``bin/client.dll`` and ``bin/server.dll``, while appid 500's general
+    depot is the large one. ``files`` becomes a ``-filelist`` of regexes, which
+    DepotDownloader matches against the path inside each depot.
+    """
     argv = [tool, "-app", str(appid), "-dir", str(destination), "-username", username]
+    for depot in depots:
+        argv.extend(["-depot", str(depot)])
     if validate:
         argv.append("-validate")
     argv.extend(extra)
-    return ProviderCommand(
-        "depotdownloader",
-        argv,
-        ["DepotDownloader prompts for the password / Steam Guard in the terminal."],
-    )
+    notes = ["DepotDownloader prompts for the password / Steam Guard in the terminal."]
+    if files:
+        notes.append("-filelist is written next to the destination; entries are regexes "
+                     "matched against paths inside the depot.")
+    return ProviderCommand("depotdownloader", argv, notes)
+
+
+def filelist_text(files: Sequence[str]) -> str:
+    """Format for DepotDownloader's ``-filelist``: one regex per line."""
+    return "\n".join(files) + "\n"
 
 
 def run_provider(command: ProviderCommand, *, execute: bool = False,

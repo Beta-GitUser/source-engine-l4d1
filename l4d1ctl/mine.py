@@ -15,9 +15,11 @@ Termux, where ``pip install pefile`` is an extra dependency to keep alive.
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import struct
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
@@ -498,3 +500,96 @@ def report_comparison(comparison: Comparison, top: Optional[int] = 20) -> str:
                 lines.append(f"{label}: ... {len(items) - top} more")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n" if lines else "identical inventories\n"
+
+
+# --------------------------------------------------------------------------
+# Command line
+# --------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="mine",
+        description="Inventory a shipped Source module (client.dll / server.dll): "
+                    "interfaces, netprops, convars, entity classnames, assets. "
+                    "Reads declarations only - not logic.",
+    )
+    parser.add_argument("files", nargs="+", help="PE files to read")
+    parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument("--bucket", help="print one bucket only, one name per line")
+    parser.add_argument("--top", type=int, default=40,
+                        help="names per bucket in the report (0 = all)")
+    parser.add_argument("--min-length", type=int, default=4,
+                        help="shortest string to consider (default 4)")
+    parser.add_argument("--compare", help="show which names the other module adds")
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Standalone entry point: ``python3 mine.py client.dll``.
+
+    Deliberately free of package imports, so this one file can be downloaded on
+    its own onto a phone and used without cloning anything.
+    """
+    args = build_parser().parse_args(argv)
+    top = None if args.top == 0 else args.top
+    status = 0
+    inventories: List[Inventory] = []
+
+    for name in args.files:
+        path = Path(name).expanduser()
+        if not path.is_file():
+            print(f"no such file: {path}", file=sys.stderr)
+            status = 1
+            continue
+        try:
+            inventories.append(mine_path(path, minimum=args.min_length))
+        except (NotAPortableExecutable, OSError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            status = 1
+
+    if args.compare:
+        if len(inventories) != 1:
+            print("--compare takes exactly one file plus --compare <other>", file=sys.stderr)
+            return 2
+        try:
+            other = mine_path(Path(args.compare).expanduser(), minimum=args.min_length)
+        except (NotAPortableExecutable, OSError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        comparison = compare(inventories[0], other)
+        if args.json:
+            print(json.dumps(comparison.to_dict(), indent=2))
+        else:
+            sys.stdout.write(report_comparison(comparison, top=top))
+        return status
+
+    if args.json:
+        payload = [inventory.to_dict() for inventory in inventories]
+        print(json.dumps(payload[0] if len(payload) == 1 else payload, indent=2))
+        return status
+
+    for inventory in inventories:
+        if args.bucket:
+            buckets = inventory.buckets()
+            if args.bucket not in buckets:
+                print(f"error: no bucket {args.bucket!r}; try one of "
+                      f"{', '.join(sorted(buckets))}", file=sys.stderr)
+                return 2
+            items = buckets[args.bucket]
+            shown = items if top is None else items[:top]
+            for item in shown:
+                print(item)
+            if top is not None and len(items) > top:
+                print(f"... {len(items) - top} more (--top 0 for all)", file=sys.stderr)
+            continue
+        sys.stdout.write(report(inventory, top=top))
+    return status
+
+
+def mine_path(path: Path, minimum: int = 4) -> Inventory:
+    """Alias kept for readability at call sites: ``mine_path(p)``."""
+    return mine(path, minimum=minimum)
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised as a subprocess
+    raise SystemExit(main())
