@@ -3,6 +3,31 @@
 The short version: **the build cannot happen on the phone, and GitHub Actions
 is the build machine.** Everything else in this document is the detail.
 
+## Status: it builds
+
+Run [42999936541](https://github.com/Beta-GitUser/source-engine-l4d1/actions/runs/42999936541)
+(commit `1966bfb`) is the first green Android build: `configure` and `build`
+succeeded, `libclient.so` and `libserver.so` were collected, and the workflow's
+own verification step confirmed both are ELF **AArch64** rather than host
+binaries. Artifacts: `android-aarch64-libraries` (108 MB, the `.so` files) and
+`android-aarch64-logs` (9 MB, `config.log` and the full build log), downloadable
+from the run page.
+
+What it took, in order, each found by a run rather than guessed:
+
+| Failure | Cause |
+| --- | --- |
+| `fprintf@LIBC` undefined | prebuilt SDL2 linked against a different libc; tolerated with `-Wl,--allow-shlib-undefined` |
+| `undefined reference to __sync_bool_compare_and_swap_16` | no 16-byte CAS on aarch64 with GCC 4.9; provided with LDXP/STXP |
+| `cannot find -lrt` (in the *configure* log) | a probe that cannot succeed on bionic; now skipped |
+| `vreinterpretq_*_f64 was not declared` | GCC 4.9's `arm_neon.h` predates those intrinsics; shimmed as `memcpy` bit casts |
+| `'snprintf'` / `'stoi'` not in `std` | the NDK's libstdc++ lacks the C++11 string conversions; launcher code uses `strtol` and unqualified C calls, enforced by a lint |
+
+Known gap, reported as a warning rather than a failure: **`libgameui.so` is not
+produced.** The port's launcher owns that surface (see
+[DEVIATIONS.md](DEVIATIONS.md)), but the retail client asks for `GameUI011`, so
+this needs a decision before a device run can be considered complete.
+
 ## Why the phone can't build this
 
 Cross-compiling for Android needs the NDK, and the NDK is a **host** toolchain:

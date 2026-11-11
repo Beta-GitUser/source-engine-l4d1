@@ -6,6 +6,14 @@ the asset path actually works.
 
 Status legend: **done** in this branch · **next** · **later**
 
+## Milestone: the engine links for aarch64
+
+Run 42999936541 (commit `1966bfb`) is the first green Android build:
+`libclient.so` and `libserver.so` build and verify as ELF AArch64. See the status
+section of [BUILDING.md](BUILDING.md#status-it-builds) for what it took.
+`libgameui.so` is still missing, and nothing has run on a device yet.
+
+
 ## Phase 0 — Launcher and content pipeline · done
 
 Deliverables:
