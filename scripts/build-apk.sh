@@ -57,18 +57,53 @@ if [ -z "$SDK" ]; then
 fi
 [ -n "$SDK" ] || die "ANDROID_HOME is not set and no SDK was found in the usual places"
 
-# build-tools: newest that has everything we need
-BUILD_TOOLS=$(ls -1d "$SDK"/build-tools/* 2>/dev/null | sort -V | tail -n 1)
-[ -n "$BUILD_TOOLS" ] || die "no build-tools under $SDK/build-tools - install build-tools;33.0.0"
+# Java first: the SDK tools are Java programs, and "newest build-tools" plus
+# "whatever JDK happens to be default" is how a step dies with an exit code and
+# no sentence. The runner image defaults to JDK 11 while build-tools 35+ want 17,
+# so 17 is preferred when it exists. javac 17 still accepts -source 8.
+if [ -z "$L4D1_KEEP_JAVA" ]; then
+	for candidate in "$JAVA_HOME_17_X64" "$JAVA_HOME_21_X64" "$JAVA_HOME_11_X64" "$JAVA_HOME"; do
+		if [ -n "$candidate" ] && [ -x "$candidate/bin/javac" ]; then
+			JAVA_HOME=$candidate
+			break
+		fi
+	done
+fi
+if [ -n "$JAVA_HOME" ] && [ -d "$JAVA_HOME/bin" ]; then
+	PATH="$JAVA_HOME/bin:$PATH"
+	export JAVA_HOME PATH
+	log "java        $JAVA_HOME"
+fi
+
+# build-tools: prefer the versions these tools are known to work in, then fall
+# back to whatever exists, newest first. "Newest" alone is not a policy: aapt was
+# dropped from later revisions, and the JDK a revision expects moves too.
+PREFERRED="34.0.0 35.0.1 35.0.0 33.0.2 33.0.1 33.0.0 30.0.3"
+CANDIDATES=""
+for version in $PREFERRED; do
+	[ -d "$SDK/build-tools/$version" ] && CANDIDATES="$CANDIDATES $SDK/build-tools/$version"
+done
+CANDIDATES="$CANDIDATES $(ls -1d "$SDK"/build-tools/* 2>/dev/null | sort -Vr)"
+
+BUILD_TOOLS=""
+for candidate in $CANDIDATES; do
+	[ -x "$candidate/zipalign" ] || continue
+	[ -x "$candidate/apksigner" ] || continue
+	if [ -x "$candidate/d8" ] || [ -x "$candidate/dx" ]; then :; else continue; fi
+	if [ -x "$candidate/aapt" ] || [ -x "$candidate/aapt2" ]; then :; else continue; fi
+	BUILD_TOOLS=$candidate
+	break
+done
+[ -n "$BUILD_TOOLS" ] || die "no usable build-tools under $SDK/build-tools - install build-tools;34.0.0"
+
 AAPT="$BUILD_TOOLS/aapt"
+AAPT2="$BUILD_TOOLS/aapt2"
 ZIPALIGN="$BUILD_TOOLS/zipalign"
 APKSIGNER="$BUILD_TOOLS/apksigner"
 D8="$BUILD_TOOLS/d8"
 [ -x "$D8" ] || D8="$BUILD_TOOLS/dx"
-for tool in "$AAPT" "$ZIPALIGN" "$APKSIGNER"; do
-	[ -x "$tool" ] || die "missing $tool (in $BUILD_TOOLS)"
-done
-[ -x "$D8" ] || die "missing d8/dx in $BUILD_TOOLS"
+[ -x "$AAPT" ] || AAPT=""
+[ -x "$AAPT2" ] || AAPT2=""
 
 ANDROID_JAR=""
 for candidate in "$SDK"/platforms/android-*/android.jar; do
@@ -88,6 +123,9 @@ log "SDK         $SDK"
 log "build-tools $(basename "$BUILD_TOOLS")"
 log "android.jar $ANDROID_JAR"
 log "arch        $ARCH (API $API)"
+log "packager    $([ -n "$AAPT" ] && echo aapt || echo "aapt2 ($(basename "$AAPT2"))")"
+log "java        $(command -v java || echo none)"
+log "javac       $(command -v javac || echo none)"
 
 case "$ARCH" in
 	aarch64|arm64-v8a) ABI=arm64-v8a ;;
@@ -110,15 +148,18 @@ mkdir -p "$WORK/classes" "$WORK/dex"
 # rather than --release for the same reason the SDK is not a JDK: --release
 # insists on a matching platform image.
 "$JAVAC" -nowarn -Xlint:none -source 8 -target 8 -classpath "$ANDROID_JAR" \
-	-d "$WORK/classes" $(find "$APK_SRC/src" -name '*.java')
+	-d "$WORK/classes" $(find "$APK_SRC/src" -name '*.java') \
+	|| die "javac rejected the Java sources (see above)"
 [ -d "$WORK/classes/com" ] || die "javac produced no classes - read the errors above"
 
 log "dexing"
 CLASSES=$(find "$WORK/classes" -name '*.class')
 if [ "$(basename "$D8")" = "d8" ]; then
-	"$D8" --lib "$ANDROID_JAR" --min-api "$API" --output "$WORK/dex" $CLASSES
+	"$D8" --lib "$ANDROID_JAR" --min-api "$API" --output "$WORK/dex" $CLASSES \
+		|| die "d8 could not dex the classes (see above)"
 else
-	"$D8" --dex --output="$WORK/dex/classes.dex" $CLASSES
+	"$D8" --dex --output="$WORK/dex/classes.dex" $CLASSES \
+		|| die "dx could not dex the classes (see above)"
 fi
 [ -f "$WORK/dex/classes.dex" ] || die "no classes.dex produced"
 
@@ -128,8 +169,17 @@ fi
 
 log "packaging"
 UNSIGNED="$WORK/unsigned.apk"
-"$AAPT" package -f -M "$APK_SRC/AndroidManifest.xml" -I "$ANDROID_JAR" \
-	--min-sdk-version "$API" -F "$UNSIGNED"
+if [ -n "$AAPT" ]; then
+	"$AAPT" package -f -M "$APK_SRC/AndroidManifest.xml" -I "$ANDROID_JAR" \
+		--min-sdk-version "$API" -F "$UNSIGNED" \
+		|| die "aapt could not package the manifest"
+else
+	# aapt2 link, for build-tools that no longer ship aapt. Same output: an APK
+	# whose only entry is the compiled manifest.
+	"$AAPT2" link -o "$UNSIGNED" -I "$ANDROID_JAR" \
+		--manifest "$APK_SRC/AndroidManifest.xml" \
+		|| die "aapt2 could not link the manifest"
+fi
 
 STAGE="$WORK/stage"
 mkdir -p "$STAGE/lib/$ABI"
@@ -153,7 +203,7 @@ log "packaged $copied native libraries into lib/$ABI/"
 
 log "aligning"
 ALIGNED="$WORK/aligned.apk"
-"$ZIPALIGN" -f -p 4 "$UNSIGNED" "$ALIGNED"
+"$ZIPALIGN" -f -p 4 "$UNSIGNED" "$ALIGNED" || die "zipalign failed"
 
 if [ -z "$KEYSTORE" ]; then
 	KEYSTORE="$WORK/debug.keystore"
@@ -169,7 +219,8 @@ log "signing"
 mkdir -p "$(dirname "$OUT")"
 rm -f "$OUT"
 "$APKSIGNER" sign --ks "$KEYSTORE" --ks-key-alias androiddebugkey \
-	--ks-pass pass:android --key-pass pass:android --out "$OUT" "$ALIGNED"
+	--ks-pass pass:android --key-pass pass:android --out "$OUT" "$ALIGNED" \
+	|| die "apksigner could not sign (see above)"
 
 "$APKSIGNER" verify "$OUT" >/dev/null || die "the APK does not verify"
 

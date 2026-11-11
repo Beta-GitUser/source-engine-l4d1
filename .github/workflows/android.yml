@@ -203,11 +203,14 @@ jobs:
         fi
 
     - name: Build the debug APK
+      id: apk
       if: always()
       run: |
+        set -o pipefail
         # The APK is the delivery vehicle, not a nicety: an unrooted phone cannot
         # run a bare .so, because the linker only maps libraries into a process
         # it creates. See scripts/build-apk.sh.
+        (
         mkdir -p apk-libs
         # Engine modules: everything the build produced, minus the NDK's own.
         find . -name '*.so' -not -path './.ndk/*' -not -path './out/*' \
@@ -226,7 +229,31 @@ jobs:
         else
           sh scripts/build-apk.sh --libs apk-libs --out apk-out/l4d1-debug.apk \
             --arch "$ARCH" --api "$API"
-        fi"
+        fi
+        ) 2>&1 | tee apk-build.log
+
+    - name: Explain an APK failure
+      if: always() && steps.apk.outcome == 'failure'
+      continue-on-error: true
+      run: |
+        # The previous attempt here died with "Process completed with exit code 2"
+        # and nothing else, because job logs are awkward to retrieve. Annotations
+        # are not, so put the tail of the log where it will actually be read.
+        echo "The packaging step failed. Last 25 lines of apk-build.log:"
+        tail -n 25 apk-build.log 2>/dev/null | while IFS= read -r line; do
+          line=${line//'%'/'%25'}
+          line=${line//$'\r'/}
+          echo "::error title=APK build::${line}"
+        done
+
+    - name: Upload the APK build log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-${{ env.ARCH }}-apk-log
+        path: apk-build.log
+        if-no-files-found: warn
+        retention-days: 14"
 
     - name: Upload the debug APK
       if: always()

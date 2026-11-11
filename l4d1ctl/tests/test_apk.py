@@ -288,6 +288,82 @@ class StagingTests(unittest.TestCase):
         self.assertNotIn('"$STAGE/dex/', script)
         self.assertIn("verify-apk.py", script)
 
+class FakeSdkPackagingTests(unittest.TestCase):
+    """Run the real packaging script against a stand-in SDK (see fake_sdk)."""
+
+    def setUp(self):
+        from l4d1ctl.tests import fake_sdk
+
+        self.fake_sdk = fake_sdk
+        self.root = Path(tempfile.mkdtemp(prefix="fake-sdk-"))
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.libs = fake_sdk.make_libraries(self.root / "libs")
+
+    def run_script(self, build_tools, *extra):
+        sdk, binaries = self.fake_sdk.make_sdk(self.root, build_tools)
+        keystore = self.root / "debug.keystore"
+        keystore.write_bytes(b"key")
+        out = self.root / "l4d1-debug.apk"
+        env = {"PATH": f"{binaries}:/usr/bin:/bin", "ANDROID_HOME": str(sdk)}
+        result = subprocess.run(
+            ["sh", str(SCRIPT), "--libs", str(self.libs), "--out", str(out),
+             "--keystore", str(keystore), *extra],
+            capture_output=True, text=True, env=env)
+        return result, out
+
+    def verify(self, out, libraries=3):
+        return subprocess.run([sys.executable, str(VERIFIER), str(out),
+                               "--abi", "arm64-v8a", "--expect-libs", str(libraries)],
+                              capture_output=True, text=True)
+
+    @unittest.skipIf(shutil.which("zip") is None, "no zip")
+    def test_aapt_path_produces_an_installable_package(self):
+        result, out = self.run_script({"34.0.0": ["aapt", "d8", "zipalign", "apksigner"]})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        check = self.verify(out)
+        self.assertEqual(check.returncode, 0, check.stderr)
+
+    @unittest.skipIf(shutil.which("zip") is None, "no zip")
+    def test_aapt2_is_used_when_aapt_is_gone(self):
+        """Later build-tools dropped aapt; the script must not die on that."""
+        result, out = self.run_script({"37.0.0": ["aapt2", "d8", "zipalign", "apksigner"]})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("aapt2", result.stdout)
+        self.assertEqual(self.verify(out).returncode, 0)
+
+    @unittest.skipIf(shutil.which("zip") is None, "no zip")
+    def test_known_good_build_tools_wins_over_a_newer_one(self):
+        """Newest alone is not a policy: a newer revision expects a newer JDK."""
+        result, _ = self.run_script({
+            "34.0.0": ["aapt", "d8", "zipalign", "apksigner"],
+            "37.0.0": ["aapt", "d8", "zipalign", "apksigner"],
+        })
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("build-tools 34.0.0", result.stdout)
+
+    def test_unusable_build_tools_says_so(self):
+        result, _ = self.run_script({"40.0.0": ["zipalign"]})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no usable build-tools", result.stderr)
+
+    @unittest.skipIf(shutil.which("zip") is None, "no zip")
+    def test_a_dex_less_build_stops_before_it_is_shipped(self):
+        """The failure that reached a phone: nothing produced a classes.dex."""
+        sdk, binaries = self.fake_sdk.make_sdk(
+            self.root, {"34.0.0": ["aapt", "d8", "zipalign", "apksigner"]})
+        # a dexer that reports success and writes nothing
+        self.fake_sdk.write_executable(sdk / "build-tools" / "34.0.0" / "d8",
+                                       "#!/bin/sh\nexit 0\n")
+        keystore = self.root / "k"
+        keystore.write_bytes(b"key")
+        result = subprocess.run(
+            ["sh", str(SCRIPT), "--libs", str(self.libs), "--out",
+             str(self.root / "bad.apk"), "--keystore", str(keystore)],
+            capture_output=True, text=True,
+            env={"PATH": f"{binaries}:/usr/bin:/bin", "ANDROID_HOME": str(sdk)})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no classes.dex produced", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

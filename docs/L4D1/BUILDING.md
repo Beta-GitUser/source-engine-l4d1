@@ -222,6 +222,15 @@ uninstalling first every time. It is cached rather than committed — it is only
 debug key, but a private key in git is a habit worth not having. If the cache
 ever misses, the cost is one uninstall.
 
+### Which tools it uses, and why that is not "the newest"
+
+The runner image has build-tools up to 37 and **JDK 11 as its default**. Taking
+the newest of each is how a step dies with an exit code and no sentence: later
+build-tools no longer ship `aapt`, and they expect a newer JDK than the default
+one. So the script pins `JAVA_HOME` to JDK 17 when the image provides it, prefers
+build-tools `34.0.0` when present, accepts `aapt2 link` when `aapt` is gone, and
+labels every phase's failure with a sentence instead of a number.
+
 ### What has not been verified
 
 The packaging script and the Java side have **not been run**: this workspace has
