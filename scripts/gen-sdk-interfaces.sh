@@ -16,17 +16,20 @@ TARGET="$ROOT/l4d1ctl/mine.py"
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 
-# Two naming conventions in this tree, and the server side uses the second:
-#   #define VCLIENT_INTERFACE_VERSION   "VClient017"
-#   #define INTERFACEVERSION_SERVERGAMEDLL "ServerGameDLL005"
-# Missing the second family silently hides every server interface, which are
-# exactly the ones the engine checks before it will run a server module.
-{
-	grep -rhoE '#define[[:space:]]+[A-Za-z0-9_]+_INTERFACE_VERSION[[:space:]]+"[^"]+"' \
-		--include='*.h' "$ROOT/public" "$ROOT/game" 2>/dev/null
-	grep -rhoE '#define[[:space:]]+INTERFACEVERSION_[A-Za-z0-9_]+[[:space:]]+"[^"]+"' \
-		--include='*.h' "$ROOT/public" "$ROOT/game" 2>/dev/null
-} | sed -E 's/.*"([^"]+)"/\1/' | sort -u > "$TMP"
+# This tree names interface-version macros at least four ways:
+#   VCLIENT_INTERFACE_VERSION        "VClient017"
+#   INTERFACEVERSION_SERVERGAMEDLL   "ServerGameDLL005"
+#   INTERFACEVERSION_ENGINEVGUI?     ...
+#   VENGINE_GAMEUIFUNCS_VERSION      "VENGINE_GAMEUIFUNCS_VERSION005"
+# so rather than enumerate conventions, take every define whose *value* has the
+# shape of an interface string: a name ending in a three-digit version 0xx or in
+# VersionNNN. Games of "which macro family" is a losing one, and each miss was
+# invisible until a mined name turned up as "unknown".
+grep -rhoE '#define[[:space:]]+[A-Za-z0-9_]+[[:space:]]+"[^"]+"' \
+	--include='*.h' "$ROOT/public" "$ROOT/game" 2>/dev/null \
+	| sed -E 's/.*"([^"]+)"/\1/' \
+	| grep -E '^[A-Za-z][A-Za-z0-9_]*(0[0-9]{2}|Version[0-9]{3})$' \
+	| sort -u > "$TMP"
 
 count=$(wc -l < "$TMP")
 if [ "$count" -lt 50 ]; then

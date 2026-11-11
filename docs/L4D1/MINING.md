@@ -111,6 +111,17 @@ the last one parsed". The report splits them three ways:
 The middle category is the one that decides whether the port runs at all — it is
 cheap to mine and expensive to discover at launch ("Your client is out of date").
 
+## Turning a dump into a decision
+
+`scripts/interface-report.py` takes the `--bucket interfaces` dumps and prints
+the three-way split, or the markdown tables in
+[INTERFACES.md](INTERFACES.md):
+
+```sh
+python3 -m l4d1ctl mine client.dll --bucket interfaces --top 0 > client.txt
+python3 scripts/interface-report.py client.txt
+```
+
 ## Using the output
 
 Do not commit the inventory wholesale. Commit the *conclusions* — the interface

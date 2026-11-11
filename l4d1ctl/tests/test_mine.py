@@ -518,3 +518,68 @@ class SdkInterfaceTests(unittest.TestCase):
         self.assertEqual(mine.interface_family("GMATCHFRAMEWORK_001"), ("GMATCHFRAMEWORK", 1))
         self.assertEqual(mine.interface_family("VClient017"), ("VClient", 17))
         self.assertEqual(mine.interface_family("NotAnInterface"), ("NotAnInterface", None))
+
+
+class RetailInterfaceFixtureTests(unittest.TestCase):
+    """The retail interface lists, and the page built from them.
+
+    These fixtures came from real runs against depot 503/502 and are the only
+    real-world data in the test suite. They catch the things synthetic strings
+    cannot: whether the classifier rejects what a real Valve build contains, and
+    whether the conclusions we wrote down still match the data.
+    """
+
+    FIXTURES = Path(__file__).resolve().parent / "fixtures"
+    DOC = ROOT / "docs" / "L4D1" / "INTERFACES.md"
+
+    def load(self, name):
+        raw = [line.strip() for line in
+               (self.FIXTURES / name).read_text(encoding="utf-8").splitlines()
+               if line.strip() and not line.strip().startswith("#")]
+        real = [line for line in raw if mine._INTERFACE_RE.match(line)]
+        return raw, real
+
+    def test_client_fixture_rejects_image_formats(self):
+        _, real = self.load("retail_client_interfaces.txt")
+        for name in ("ABGR8888", "RGB565", "IMAGE_FORMAT_UVLX8888", "UVWQ8888"):
+            self.assertNotIn(name, real)
+
+    def test_server_fixture_rejects_activity_names(self):
+        _, real = self.load("retail_server_interfaces.txt")
+        self.assertNotIn("ACT_PRIMARYATTACK_XM1014", real)
+        self.assertNotIn("VP4001", real)
+
+    def test_client_versions_of_interest(self):
+        _, real = self.load("retail_client_interfaces.txt")
+        alignment = mine.align_with_sdk(real)
+        self.assertEqual(alignment.mismatched["VClient"][0], "VClient016")
+        self.assertEqual(alignment.mismatched["VFileSystem"][0], "VFileSystem018")
+        self.assertIn("IMATCHEXT_L4D_INTERFACE_001", alignment.unknown)
+        self.assertEqual(len(real), 77, "the fixture changed - update INTERFACES.md")
+
+    def test_server_gets_the_older_game_dll_interface(self):
+        """L4D1's server module wants ServerGameDLL005; this SDK has 008-010."""
+        _, real = self.load("retail_server_interfaces.txt")
+        alignment = mine.align_with_sdk(real)
+        module_name, versions = alignment.mismatched["ServerGameDLL"]
+        self.assertEqual(module_name, "ServerGameDLL005")
+        self.assertNotIn(5, versions)
+        self.assertIn("ServerGameClients003", alignment.known)
+
+    def test_engine_services_shared_by_both_modules(self):
+        _, client = self.load("retail_client_interfaces.txt")
+        _, server = self.load("retail_server_interfaces.txt")
+        shared = set(client) & set(server)
+        # The framework both halves sit on; if these stopped overlapping, the
+        # "HL2 game code is a usable base" argument would need revisiting.
+        for name in ("MDLCache004", "VPhysics031", "VGUI_Surface030", "VDataCache003"):
+            self.assertIn(name, shared)
+
+    def test_doc_still_describes_the_data(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "interface-report.py"),
+             "--check-doc", str(self.DOC),
+             str(self.FIXTURES / "retail_client_interfaces.txt"),
+             str(self.FIXTURES / "retail_server_interfaces.txt")],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
