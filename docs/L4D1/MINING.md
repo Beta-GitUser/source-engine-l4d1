@@ -1,0 +1,114 @@
+# Mining the retail modules
+
+`l4d1ctl mine` reads a shipped `client.dll` / `server.dll` and lists what the
+binary *declares*: interface versions, network properties, data tables, convar
+names, entity classnames, asset paths.
+
+It exists because the SDK cannot answer those questions. The SDK tells you how
+to write a `CBasePlayer`; it does not tell you that L4D1's client asks for
+`VClient017`, nor what the infected network properties are called. The shipped
+module is the only authority on both, and getting them wrong is not a subtle
+bug — the engine refuses to load the module.
+
+## What this is, and what it is not
+
+There is a line, and it is worth being precise about it:
+
+| | |
+| --- | --- |
+| ✅ **Interoperability information** | names, version strings, table names, defaults, exported symbols. You need these to talk to the engine. This tool extracts only this. |
+| ❌ **Expression** | turning decompiled pseudocode back into source and shipping that. |
+
+EU Software Directive 2009/24/EC art. 6 permits decompilation to obtain the
+information needed for interoperability, and explicitly excludes using it to
+develop a program "substantially similar in its expression". Dutch
+implementation follows the directive. Steam's subscriber agreement independently
+prohibits reverse engineering, subject to those statutory rights.
+
+So: mining declarations is the permitted use and is how the whole Source modding
+toolchain has always worked (SourceMod's gamedata files are exactly this idea).
+Reconstructing Valve's code from a decompiler is the excluded use — and, for the
+reasons in the next section, also the slower way to get a working port.
+
+## Why not decompile the logic instead
+
+Because decompiled MSVC C++ is not source:
+
+- no type information — `*(int *)(param_1 + 0x1c)` where the SDK says `m_iHealth`;
+- virtual calls are offset arithmetic, inlining erased the function boundaries;
+- tens of thousands of functions per module, and every type you re-derive is an
+  unverifiable guess until it misbehaves three subsystems later.
+
+This repository already contains 319 client and 343 server source files of
+compiling, licensed game code with the same class hierarchy. The productive
+question is what L4D1 *adds*, and that is exactly what `mine` answers.
+
+## Running it
+
+```sh
+python3 -m l4d1ctl mine client.dll                  # readable report
+python3 -m l4d1ctl mine client.dll --json           # machine readable
+python3 -m l4d1ctl mine client.dll --bucket netprops --top 0
+python3 -m l4d1ctl mine client.dll --compare server.dll
+```
+
+Exit codes: `0` read at least one file, `1` a file was missing or not a PE,
+`2` bad arguments.
+
+### The buckets
+
+| Bucket | What it is | Why it matters |
+| --- | --- | --- |
+| `exports` | export directory | must include `CreateInterface`, or nothing loads |
+| `interfaces` | `VClient017`-style strings | the versions your modules must advertise |
+| `datatables` | `DT_*` | send/recv table names; the network layout |
+| `entities` | classnames | the shopping list of entities a map can ask for |
+| `netprops` | `m_*` | property names that must match on both sides |
+| `convars` | prefix families | behaviour switches players and configs expect |
+| `assets` | paths | which data files the port must find or convert |
+| `identifiers` | everything else | commands, keys, error strings |
+
+The classifiers are filters, not proofs: a name can be misfiled, and a few
+thousand candidates is the intended output. Read them, don't parse them.
+
+## Using the output
+
+Do not commit the inventory wholesale. Commit the *conclusions* — the interface
+version your client must expose, the property names your `DT_` tables must
+carry — and keep the raw JSON outside the repository. The port needs to agree
+with those declarations; it does not need to republish Valve's binaries'
+contents.
+
+A useful first pass:
+
+```sh
+python3 -m l4d1ctl mine bin/client.dll --bucket interfaces --top 0 > interfaces.txt
+python3 -m l4d1ctl mine bin/server.dll --bucket netprops  --top 0 > netprops.txt
+```
+
+then, in the code, work down `interfaces.txt` until the engine stops rejecting
+the module, and use `netprops.txt` as the checklist for `DT_` definitions.
+
+## On a phone
+
+The tool is standard library only — no `pefile`, no `pip` — so it runs in
+[Termux](https://termux.dev):
+
+```sh
+pkg install python git
+git clone https://github.com/Beta-GitUser/source-engine-l4d1
+cd source-engine-l4d1
+python3 -m l4d1ctl mine /sdcard/Download/client.dll
+```
+
+The Android engine build still cannot happen on the device (the NDK is an
+x86_64 host toolchain, and the phone has no x86_64 to run it on) — that stays in
+GitHub Actions. Analysis, fetching and inspection are all fine on-device.
+
+## Limitations
+
+- Packed or SteamStub-protected images yield few strings; the report says so
+  rather than pretending to be empty.
+- 64-bit images are called out: retail L4D1 is 32-bit, so a 64-bit file is
+  probably the wrong file.
+- It reads declarations only. Nothing here tells you what a function *does*.

@@ -16,7 +16,7 @@ Deliverables:
   `doctor`/`status`.
 * `launcher/portcore` (C++, no engine dependencies): `port.cfg` parser and argv
   builder, wired into `launcher/android/main.cpp`.
-* Tests: 253 Python tests + 67 C++ checks, runnable without the engine build
+* Tests: 277 Python tests + 67 C++ checks, runnable without the engine build
   (`scripts/test-tooling.sh`) and in CI.
 
 Exit criterion: `l4d1ctl doctor` reports a verified game directory, `l4d1ctl
