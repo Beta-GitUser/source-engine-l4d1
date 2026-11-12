@@ -139,11 +139,17 @@ jobs:
       if: always()
       run: |
         mkdir -p out
+        # ::notice:: rather than a plain echo: annotations survive in the API even
+        # when the job log does not come back (it returns EOF from some networks),
+        # and "which modules were collected" is the one fact this step exists to
+        # establish.
+        found=$(find . -name '*.so' -not -path './.ndk/*' -not -path './out/*' -not -path './thirdparty/*' -not -path './lib/android/*' -type f | sed 's|.*/||' | sort -u | head -20 | tr '\n' ' ')
+        echo "::notice title=shared objects in the build tree::$found"
         for name in libclient.so libserver.so liblauncher.so; do
           src=$(find . -name "$name" -type f -not -path "./out/*" | head -n1 || true)
           if [ -n "$src" ]; then
             cp "$src" "out/$name"
-            echo "collected $name from $src"
+            echo "::notice title=collected::$name from $src"
           else
             echo "::warning::no $name in the build tree"
           fi
@@ -158,7 +164,7 @@ jobs:
         gameui=$(find . -iname 'libgameui.so' -type f -not -path "./out/*" | head -n1 || true)
         if [ -n "$gameui" ]; then
           cp "$gameui" "out/$(basename "$gameui")"
-          echo "collected $(basename "$gameui") from $gameui"
+          echo "::notice title=collected::$(basename "$gameui") from $gameui"
         else
           echo "::warning::no libGameUI.so in the build tree - the base UI module is missing"
         fi
