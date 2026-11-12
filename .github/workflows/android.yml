@@ -168,6 +168,20 @@ jobs:
         else
           echo "::warning::no libGameUI.so in the build tree - the base UI module is missing"
         fi
+        # Everything else the build produced. The four named modules are what the
+        # engine looks up by name, but each of them carries DT_NEEDED edges -
+        # libclient -> tier0, materialsystem, studiorender, datacache - so an
+        # artifact with only the four fails at dlopen with the name of a missing
+        # dependency, on the device, where nobody can read a log.
+        extra=0
+        while IFS= read -r so; do
+          base=$(basename "$so")
+          if [ ! -f "out/$base" ]; then
+            cp "$so" "out/$base"
+            extra=$((extra + 1))
+          fi
+        done < <(find build -name '*.so' -type f | sort)
+        echo "::notice title=collected total::$(ls -1 out/*.so 2>/dev/null | wc -l) modules in the artifact ($extra beyond the named four)"
         ls -l out || true
 
     - name: Verify the modules are really ${{ env.ARCH }}

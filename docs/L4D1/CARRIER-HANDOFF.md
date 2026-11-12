@@ -61,8 +61,13 @@ MODULE NAMING (case-sensitive; this is where the engine repo wasted runs)
 
 WHERE THE LIBRARIES COME FROM
 - Download the artifact android-aarch64-libraries from the latest green run of the
-  engine repo's "Android build" workflow. It contains libclient.so, libserver.so,
-  liblauncher.so and libGameUI.so, all ELF AArch64.
+  engine repo's "Android build" workflow. It contains every module the build
+  produced (~20 .so files), all ELF AArch64: libclient.so, libserver.so,
+  liblauncher.so, libGameUI.so plus the dependencies they name - libengine.so,
+  libtier0.so, libmaterialsystem.so, libstudiorender.so, libdatacache.so,
+  libfilesystem_stdio.so and so on. Ship them all: the named modules have
+  DT_NEEDED edges, and a missing dependency surfaces as a dlopen failure naming
+  one file.
 - Put them where the app's nativeLibraryDir will be (the APK's lib/arm64-v8a/),
   because that is what APP_LIB_PATH is set to.
 

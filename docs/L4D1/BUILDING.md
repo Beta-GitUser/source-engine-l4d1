@@ -31,12 +31,13 @@ for `libgameui.so`, found nothing, and warned for several runs. It now collects 
 name case-insensitively and preserves the capitalisation, which is what the loader
 matches.
 
-That this was a naming bug rather than a missing module is an inference from the
-three places that agree — the wscript target, waf's `lib`+target+`.so` convention,
-and the loader's candidates — not something verified here: no build listing was
-ever readable from this workspace. The next run's `collected libGameUI.so from …`
-line settles it, and a `no libGameUI.so in the build tree` warning after this
-change would mean the module genuinely does not build.
+Confirmed by run 43223013024's own annotations: `libGameUI.so from
+./build/gameui/libGameUI.so`, and the artifact grew from 108 MB to 118 MB.
+
+The reasoning that predicted it was the three places that agree — the wscript target, waf's
+`lib`+target+`.so` convention, and the loader's candidates — and the run above
+settled it. A `no libGameUI.so in the build tree` warning would now mean the module
+genuinely does not build.
 
 The module matters because the retail client asks for `GameUI011` and
 `CEngineVGui::Init()` calls `g_pFileSystem->LoadModule("GameUI", ...)`, warning
@@ -140,6 +141,12 @@ Two different layouts, and installing the wrong one is the classic mistake:
 | --- | --- | --- | --- |
 | desktop | `./waf configure --build-games left4dead && ./waf build` | `game/left4dead/bin/{client,server}.so` | `<gamedir>/bin` (`GAMEBIN`) |
 | Android | `scripts/build-android.sh` | `lib/<abi>/lib{client,server}.so` next to the engine | the engine's own library directory |
+
+The Android artifact is not just the four modules the engine looks up by name.
+`libclient.so` and `libserver.so` carry `DT_NEEDED` edges to `tier0`,
+`materialsystem`, `studiorender`, `datacache` and friends, so the artifact ships
+every `.so` the build produced — about twenty — and a carrier that copies only the
+named four gets a `dlopen` failure naming one of the others.
 
 On Android the modules are `libclient.so` / `libserver.so` and they ship beside
 the engine binary (inside the APK's `lib/<abi>/`, or in the engine folder you
