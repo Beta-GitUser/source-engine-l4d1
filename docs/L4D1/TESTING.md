@@ -12,6 +12,46 @@ and in Termux on the phone.
 
 ---
 
+## "couldn't find materials/…" on every start
+
+Four lines show up in the log of a healthy boot:
+
+```
+##### CTexture::LoadTextureBitsFromFile couldn't find materials/debug/debugluxelsnoalpha.vtf
+##### CTexture::LoadTextureBitsFromFile couldn't find materials/dev/identitylightwarp.vtf
+##### CTexture::LoadTextureBitsFromFile couldn't find materials/engine/normalizedrandomdirections2d.vtf
+Can't find background image 'materials/console/background01_widescreen.vtf'
+```
+
+They are **not fatal** — the engine warns and continues — and they are not
+peculiar to this port: nillerusr's tree produces the same four on a working install
+(source-engine issue #292). What they do *not* tell you is which of two very
+different things is true:
+
+* the file is in the content and the engine is not looking there (mounting, search
+  path, wrong base directory) — fixable here;
+* the file is genuinely absent from what was downloaded — fixable only by fetching
+  the right depot.
+
+`l4d1ctl content` answers that instead of guessing. It indexes loose files and every
+`*_dir.vpk` under the engine's base directory (so `left4dead/` and `platform/` both
+count) and says, per asset, whether it was found and where:
+
+```sh
+python3 -m l4d1ctl content                      # scan the resolved base directory
+python3 -m l4d1ctl content --root /storage/emulated/0/srceng
+python3 -m l4d1ctl content --json               # for the launcher UI
+```
+
+`[found] … in pak01_dir.vpk` means the content has it: if the engine still says it
+cannot find it, the problem is mounting, not content. `[absent]` means the download
+lacks it, and nothing in this repository can conjure it up.
+
+The `Requested non-existent write path MOD!` spam that accompanies these lines is
+also upstream's: nothing in this tree ever registers a `game_write`/`mod_write`
+path ID, so the lookup falls through to the default write path and logs a warning
+first. It is noise, not an error.
+
 ## Tier 0 — `selftest`: rehearse the whole toolchain
 
 ```sh
@@ -118,6 +158,7 @@ python3 -m l4d1ctl status                  # files, bytes, VPK count, identity
 python3 -m l4d1ctl check                   # will it launch?
 python3 -m l4d1ctl vpk --list --limit 0     # can the packs be parsed at all?
 python3 -m l4d1ctl vpk --verify-crc scripts/talker.txt   # spot-check a CRC
+python3 -m l4d1ctl content                    # are the boot assets actually in the content?
 ```
 
 A healthy L4D1 content folder is several GB with most files inside

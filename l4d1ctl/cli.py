@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 from . import (depot, doctor, gameinfo, gamemod, launch, mine, mods, preflight,
-               selftest, steamid, steamlib, vpk)
+               contentaudit, selftest, steamid, steamlib, vpk)
 from .paths import PortPaths, resolve_gamedir
 
 
@@ -457,6 +457,48 @@ def cmd_module(args: argparse.Namespace) -> int:
     return 2
 
 
+def cmd_content(args: argparse.Namespace) -> int:
+    if args.root:
+        root = Path(args.root).expanduser()
+    else:
+        # The engine's base directory, not the game directory: platform/ lives
+        # beside left4dead/, not inside it.
+        root = Path(resolve_gamedir()).parent
+    if not root.is_dir():
+        print(f"no such directory: {root}", file=sys.stderr)
+        return 2
+
+    findings = contentaudit.audit(root)
+    if args.json:
+        print(json.dumps(contentaudit.summarise(findings), indent=2))
+        return 0
+
+    print(f"game directory: {root}")
+    print()
+    for finding in findings:
+        if finding.found:
+            print(f"[found]  {finding.path}")
+            print(f"         in {finding.found_in}")
+        else:
+            print(f"[absent] {finding.path}")
+            print(f"         {finding.description}")
+            print(f"         costs: {finding.cost}")
+
+    missing = [f.path for f in findings if not f.found]
+    print()
+    if not missing:
+        print("all four boot-time assets are present, so a 'couldn't find' line in the")
+        print("engine log means the engine is not looking at this content (mounting or")
+        print("search path), not that the content lacks the file.")
+        return 0
+
+    print(f"{len(missing)} of {len(findings)} absent. The engine warns and continues -")
+    print("none of these stop a map from loading. If they are missing here but the")
+    print("same paths exist in your download, the content is not where I looked:")
+    print(f"  {root}")
+    return 0
+
+
 def cmd_vpk(args: argparse.Namespace) -> int:
     target = Path(args.path).expanduser()
     if not target.exists():
@@ -809,6 +851,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="machine-readable `status`")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_module)
+
+    p = sub.add_parser("content", help="check the content for assets the engine asks for at boot")
+    p.add_argument("--root", help="game directory to scan (default: the resolved one)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_content)
 
     p = sub.add_parser("vpk", help="inspect mod VPK packs")
     p.add_argument("action", choices=("info", "list", "check", "extract"))
