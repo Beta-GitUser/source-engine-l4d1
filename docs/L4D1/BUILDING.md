@@ -123,6 +123,15 @@ time. That is why `r10e` is the default, matching
 `xcompile.py` to libc++ first — do that as its own change, with the CI log in
 front of you.
 
+### One way to lose a build: pushing during one
+
+Runs are grouped per branch with `cancel-in-progress`, and the group now includes
+the event name. It did not, and that cost a build: a push creates a run even when
+`L4D1_CI_ON_PUSH` is unset and the run skips at the job level — but the *run*
+still enters the concurrency group and cancels the build already in flight
+(`Canceling since a higher priority waiting request … exists`). So: push first,
+dispatch second, and leave the branch alone until the artifact appears.
+
 ## What gets built, and where it goes
 
 Two different layouts, and installing the wrong one is the classic mistake:

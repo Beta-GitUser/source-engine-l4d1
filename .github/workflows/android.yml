@@ -46,7 +46,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-${{ github.ref }}
+  # The event name is part of the group on purpose. Without it, every push to the
+  # branch creates a run in the same group - and even though a push-triggered run
+  # skips at the job level (L4D1_CI_ON_PUSH), the *workflow run* still enters the
+  # group and cancels the build that is already going. That is how a green build
+  # gets killed two minutes after it was dispatched, with "Canceling since a
+  # higher priority waiting request exists" and no artifact.
+  group: android-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
