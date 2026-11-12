@@ -87,10 +87,14 @@ Inputs (Actions → "Android build" → *Run workflow*):
 | `games` | `left4dead` | game code to build; use `hl2` when iterating on toolchain problems |
 | `api` | `21` | Android API level (21 is the floor for 64-bit) |
 
-Every run uploads two artifacts even when it fails:
+Every run uploads its logs, and a build that finished uploads its libraries:
 
-* `android-<arch>-libraries` — `libclient.so`, `libserver.so`, `liblauncher.so`, `libgameui.so` that were produced
-* `android-<arch>-logs` — `build-android.log` and `build/config.log`
+* `android-<arch>-libraries` — every `.so` the build produced, plus the prebuilt
+  SDL2 — uploaded only when the build step succeeded. A cancelled or failed run
+  still collects the tree and reports what it found (those notices are how a
+  missing module is diagnosed), but it does not publish a handful of files under
+  the same name as a real artifact.
+* `android-<arch>-logs` — `build-android.log` and `build/config.log`, always.
 
 The job also runs `l4d1ctl inspect` on the modules and **fails if they are not
 the requested architecture**, so a build that silently used the host toolchain

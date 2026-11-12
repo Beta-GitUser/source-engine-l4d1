@@ -96,6 +96,7 @@ jobs:
         key: ndk-${{ env.NDK_VERSION }}-linux-x86_64
 
     - name: Configure and build
+      id: build
       shell: bash
       run: |
         set -o pipefail
@@ -226,8 +227,13 @@ jobs:
         done
         exit $status
 
+    # Only a build that finished produces the artifact. The collect step still runs
+    # on a cancelled or failed build - its ::notice:: lines are how "which modules
+    # were missing" is read back through the API - but uploading that run's handful
+    # of files under the same name as a real artifact is how somebody ends up
+    # installing a stub and reporting it as a broken build.
     - name: Upload libraries
-      if: always()
+      if: steps.build.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
         name: android-${{ env.ARCH }}-libraries
