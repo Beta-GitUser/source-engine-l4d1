@@ -12,6 +12,7 @@ This folder is the working documentation for running **Left 4 Dead 1** (appid
 | [DEVIATIONS.md](DEVIATIONS.md) | Where this port knowingly differs from L4D1, how confident we are, and the rule that engine plumbing gets modernised while gameplay numbers do not. |
 | [INTERFACES.md](INTERFACES.md) | What L4D1's client and server actually ask the engine for, diffed against this SDK: what matches, what mismatches, and what this tree has never had. |
 | [MINING.md](MINING.md) | `l4d1ctl mine`: reading interface versions, netprops, convars and entity names out of the retail DLLs - and the line between interoperability information and copying expression. |
+| [CARRIER-HANDOFF.md](CARRIER-HANDOFF.md) | A starting prompt for the session that maintains the Android app (`srceng-android` fork): what the carrier is, the JNI mismatch to fix, module naming, and how to get logs off a phone with no adb. |
 | [THIRDPARTY.md](THIRDPARTY.md) | Vendored code, its licences, the patch this fork carries to `sse2neon.h`, and the rule for adding the next one. |
 | [TESTING.md](TESTING.md) | How to test a download and a launch without Steam or content: `selftest`, `check`, `launch --run` and what each engine error means. |
 | [GAMECODE.md](GAMECODE.md) | The game module: how map hosting and walking work today via the HL2 bootstrap, what L4D entities get skipped and why that is safe, and how map intro cutscenes are built. |

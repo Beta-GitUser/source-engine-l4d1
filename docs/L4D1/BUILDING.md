@@ -23,10 +23,25 @@ What it took, in order, each found by a run rather than guessed:
 | `vreinterpretq_*_f64 was not declared` | GCC 4.9's `arm_neon.h` predates those intrinsics; shimmed as `memcpy` bit casts |
 | `'snprintf'` / `'stoi'` not in `std` | the NDK's libstdc++ lacks the C++11 string conversions; launcher code uses `strtol` and unqualified C calls, enforced by a lint |
 
-Known gap, reported as a warning rather than a failure: **`libgameui.so` is not
-produced.** The port's launcher owns that surface (see
-[DEVIATIONS.md](DEVIATIONS.md)), but the retail client asks for `GameUI011`, so
-this needs a decision before a device run can be considered complete.
+**The "`libgameui.so` is not produced" gap was a filename, not a module.**
+`gameui/wscript` sets `target = 'GameUI'`, so waf writes `libGameUI.so`, and the
+engine's Android loader (`foundLibraryWithPrefix` in `tier1/interface.cpp`) looks
+for exactly `lib` + name + `.so` under `APP_LIB_PATH`. The collection step asked
+for `libgameui.so`, found nothing, and warned for several runs. It now collects the
+name case-insensitively and preserves the capitalisation, which is what the loader
+matches.
+
+That this was a naming bug rather than a missing module is an inference from the
+three places that agree — the wscript target, waf's `lib`+target+`.so` convention,
+and the loader's candidates — not something verified here: no build listing was
+ever readable from this workspace. The next run's `collected libGameUI.so from …`
+line settles it, and a `no libGameUI.so in the build tree` warning after this
+change would mean the module genuinely does not build.
+
+The module matters because the retail client asks for `GameUI011` and
+`CEngineVGui::Init()` calls `g_pFileSystem->LoadModule("GameUI", ...)`, warning
+`Can't find module - GameUI` if it is absent (see
+[DEVIATIONS.md](DEVIATIONS.md) for who owns that surface).
 
 ## Why the phone can't build this
 

@@ -133,7 +133,7 @@ jobs:
       if: always()
       run: |
         mkdir -p out
-        for name in libclient.so libserver.so liblauncher.so libgameui.so; do
+        for name in libclient.so libserver.so liblauncher.so; do
           src=$(find . -name "$name" -type f -not -path "./out/*" | head -n1 || true)
           if [ -n "$src" ]; then
             cp "$src" "out/$name"
@@ -142,6 +142,20 @@ jobs:
             echo "::warning::no $name in the build tree"
           fi
         done
+
+        # GameUI is a case-sensitive name, and this is where it was reported as a
+        # gap for several runs: gameui/wscript sets target 'GameUI', so waf writes
+        # libGameUI.so, and the engine's Android loader in tier1/interface.cpp
+        # (foundLibraryWithPrefix) looks for exactly "lib" + name + ".so" inside
+        # APP_LIB_PATH. The old list asked for libgameui.so, found nothing, and
+        # warned about a module that was there all along.
+        gameui=$(find . -iname 'libgameui.so' -type f -not -path "./out/*" | head -n1 || true)
+        if [ -n "$gameui" ]; then
+          cp "$gameui" "out/$(basename "$gameui")"
+          echo "collected $(basename "$gameui") from $gameui"
+        else
+          echo "::warning::no libGameUI.so in the build tree - the base UI module is missing"
+        fi
         ls -l out || true
 
     - name: Verify the modules are really ${{ env.ARCH }}
