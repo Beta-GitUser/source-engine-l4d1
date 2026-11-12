@@ -170,100 +170,6 @@ jobs:
         done
         exit $status
 
-    - name: Restore the debug keystore
-      if: always()
-      uses: actions/cache@v4
-      with:
-        path: .keys
-        key: android-debug-keystore-v1
-
-    - name: Keep the debug key stable between runs
-      if: always()
-      run: |
-        # A fresh key per run means the next APK refuses to install over the
-        # previous one (INSTALL_FAILED_UPDATE_INCOMPATIBLE) unless it is
-        # uninstalled first - painful on a device with no cable. So the key is
-        # generated once and cached, not regenerated.
-        #
-        # Cached rather than committed: it is still only a debug key, but a
-        # private key in git is a habit worth not having. Losing the cache costs
-        # one uninstall, nothing more.
-        set +e
-        mkdir -p .keys
-        if [ ! -f .keys/debug.keystore ]; then
-          keytool -genkeypair -keystore .keys/debug.keystore -storetype JKS \
-            -alias androiddebugkey -storepass android -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
-        fi
-        if [ -f .keys/debug.keystore ]; then
-          echo "L4D1_DEBUG_KEYSTORE=$PWD/.keys/debug.keystore" >> "$GITHUB_ENV"
-        else
-          echo "::warning::no stable keystore; build-apk.sh will make a throwaway one"
-        fi
-
-    - name: Build the debug APK
-      id: apk
-      if: always()
-      run: |
-        set -o pipefail
-        # The APK is the delivery vehicle, not a nicety: an unrooted phone cannot
-        # run a bare .so, because the linker only maps libraries into a process
-        # it creates. See scripts/build-apk.sh.
-        (
-        mkdir -p apk-libs
-        # Engine modules: everything the build produced, minus the NDK's own.
-        find . -name '*.so' -not -path './.ndk/*' -not -path './out/*' \
-             -not -path './lib/android/*' -not -path './thirdparty/*' \
-             -exec cp {} apk-libs/ \; 2>/dev/null || true
-        # Prebuilt third-party libraries (SDL2, steam_api, ...) from the submodule.
-        if [ -d "lib/android/$ARCH" ]; then
-          cp lib/android/$ARCH/*.so apk-libs/ 2>/dev/null || true
-        fi
-        ls -1 apk-libs | wc -l | xargs echo "native libraries to package:"
-        # Two invocations rather than a clever expansion: quoting inside
-        # ${var:+...} does not survive the way it reads.
-        if [ -n "$L4D1_DEBUG_KEYSTORE" ]; then
-          sh scripts/build-apk.sh --libs apk-libs --out apk-out/l4d1-debug.apk \
-            --arch "$ARCH" --api "$API" --keystore "$L4D1_DEBUG_KEYSTORE"
-        else
-          sh scripts/build-apk.sh --libs apk-libs --out apk-out/l4d1-debug.apk \
-            --arch "$ARCH" --api "$API"
-        fi
-        ) 2>&1 | tee apk-build.log
-
-    - name: Explain an APK failure
-      if: always() && steps.apk.outcome == 'failure'
-      continue-on-error: true
-      run: |
-        # The previous attempt here died with "Process completed with exit code 2"
-        # and nothing else, because job logs are awkward to retrieve. Annotations
-        # are not, so put the tail of the log where it will actually be read.
-        echo "The packaging step failed. Last 25 lines of apk-build.log:"
-        tail -n 25 apk-build.log 2>/dev/null | while IFS= read -r line; do
-          line=${line//'%'/'%25'}
-          line=${line//$'\r'/}
-          echo "::error title=APK build::${line}"
-        done
-
-    - name: Upload the APK build log
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: android-${{ env.ARCH }}-apk-log
-        path: apk-build.log
-        if-no-files-found: warn
-        retention-days: 14"
-
-    - name: Upload the debug APK
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: android-${{ env.ARCH }}-debug-apk
-        path: apk-out/l4d1-debug.apk
-        if-no-files-found: warn
-        retention-days: 30
-
     - name: Upload libraries
       if: always()
       uses: actions/upload-artifact@v4
@@ -300,14 +206,6 @@ jobs:
             echo "No libraries were produced - read the **logs** artifact."
           fi
           echo
-          if [ -f apk-out/l4d1-debug.apk ]; then
-            echo "**Debug APK**: \`apk-out/l4d1-debug.apk\` ($(wc -c <apk-out/l4d1-debug.apk | tr -d ' ') bytes)."
-            echo
-            echo "Copy it to the phone, open it, and launch **L4D1 debug**: it loads every"
-            echo "module it finds and reports how far it gets, on screen and in"
-            echo "\`files/probe.log\`."
-            echo
-          fi
           echo "Install on a device with:"
           echo '```sh'
           echo "python3 -m l4d1ctl module install --from <unzipped artifact> --force"

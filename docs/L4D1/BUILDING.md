@@ -23,30 +23,6 @@ What it took, in order, each found by a run rather than guessed:
 | `vreinterpretq_*_f64 was not declared` | GCC 4.9's `arm_neon.h` predates those intrinsics; shimmed as `memcpy` bit casts |
 | `'snprintf'` / `'stoi'` not in `std` | the NDK's libstdc++ lacks the C++11 string conversions; launcher code uses `strtol` and unqualified C calls, enforced by a lint |
 
-Run [43007904508](https://github.com/Beta-GitUser/source-engine-l4d1/actions/runs/43007904508)
-(commit `6141c84`) is that build plus the debug APK: the same job compiles the
-engine, collects the libraries, and packages `l4d1-debug.apk` on the end. All
-three artifacts are published — `android-aarch64-debug-apk` (181 MB),
-`android-aarch64-libraries` (108 MB), `android-aarch64-logs` (9 MB).
-
-Run [43031993188](https://github.com/Beta-GitUser/source-engine-l4d1/actions/runs/43031993188)
-(commit `fa3f697`) is the first packaging run that succeeded *and* passed the
-installability check, after two failures: the dex staged one directory too deep,
-then the newest build-tools paired with the image's default JDK 11. Its artifacts
-are `android-aarch64-debug-apk` (181 MB), `android-aarch64-libraries` (108 MB),
-`android-aarch64-apk-log` and `android-aarch64-logs`.
-
-The earlier APK step succeeded too, and meant less than it looked: `aapt`, `d8`,
-`zipalign`, `apksigner sign` and `apksigner verify` all reported success. The last
-one was not enough: the package signed perfectly and then refused to install —
-*"package appears to be invalid"* — because `classes.dex` had been staged into
-`dex/` instead of the archive root, and nothing in the chain asks where the dex
-is. `scripts/verify-apk.py` now asks that, plus the manifest, the ABI directory,
-entry names and CRC, and `build-apk.sh` fails on its answer. The *contents* were not inspected from here — GitHub's artifact storage answers this
-development sandbox with `EOF`, so the file has to be downloaded from the run page
-and installed to be looked at. Treat the transcript on the phone as the first
-evidence of anything beyond "it packaged".
-
 Known gap, reported as a warning rather than a failure: **`libgameui.so` is not
 produced.** The port's launcher owns that surface (see
 [DEVIATIONS.md](DEVIATIONS.md)), but the retail client asks for `GameUI011`, so
@@ -163,104 +139,32 @@ adb push out/libclient.so out/libserver.so /data/local/tmp/srceng/
 adb shell "cd /data/local/tmp/srceng && ./hl2_linux -game left4dead -nosteam -insecure"
 ```
 
-`/data/local/tmp` is writable and executable through `adb`, so this needs no root
-and no package — a USB cable is the whole requirement, which is the situation
-this document assumes.
+## Where the Android app comes from
 
-If the phone is the only machine you have, that paragraph is not available: with
-no `adb` there is no shell that can start a binary, and a bare `.so` cannot be
-started at all, because the dynamic linker only maps libraries into a process it
-creates. That case is what [The debug APK](#the-debug-apk) is for.
+This repository is the **engine**, and on Android its `launcher/android/`
+directory contains JNI glue only — `setenv`, `setArgs`,
+`nativeOnActivityResult`, and the argv builder. There is no Java, no manifest and
+no gradle here, and no amount of building produces an installable package.
 
-## The debug APK
+The application is a separate project: **`nillerusr/srceng-android`**, an Ant
+build (`build.sh` is literally `ant debug`) holding `ValveActivity2`,
+`me.nillerusr.LauncherActivity` (the game picker), `DirchActivity` (directory
+chooser), the SDL2 Java glue in `org/libsdl/app/`, layouts, strings and a
+committed `debug.keystore`. Its `SDLActivity` loads **`liblauncher.so`** with
+`SDL.loadLibrary` and calls `nativeRunMain`, so the engine runs inside the SDL
+activity with SDL providing the window, surface, input and audio.
 
-`scripts/build-apk.sh` packages the cross-compiled libraries into
-`l4d1-debug.apk`, and the CI job does this in the same run as the build, so one
-dispatch produces both the `.so` set and the APK. It is the only way to put this
-code in front of a device that is not rooted: the package is the process.
+Two things to reconcile when pairing it with a build from here:
 
-What it does is narrow on purpose. It is **not** a game yet — it loads the
-modules and reports, step by step, how far it gets:
+* `launcher/android/main.cpp` implements `nativeOnActivityResult` with **no**
+  arguments; `srceng-android`'s `ValveActivity2` declares it with four
+  (`Activity, int, int, Intent`). The symbol names match, the signatures do not,
+  and the mismatch shows up as an `UnsatisfiedLinkError` at call time.
+* that project expects the engine modules beside the app in its own `libs/`
+  layout — the files this build produces are collected by the CI job's
+  "Collect libraries" step.
 
-```
-ok    libtier0.so
-ok    libclient.so
-ok    libclient.so -> VClient017
-none  libclient.so -> VClient016
-```
-
-That answers three questions nothing else can answer, all of them about bionic
-rather than about our code:
-
-1. does the linker accept our aarch64 modules (ABI, page size, ELF layout);
-2. do their `DT_NEEDED` dependencies resolve on a real device;
-3. does `CreateInterface` hand back the versions this SDK advertises.
-
-### Crashes are the expected result, so the crash is contained
-
-Loading the engine modules on a device where the engine has never run is likely to
-segfault inside a static initialiser. That is the finding, not an accident, so it
-must not be able to destroy the report. **Each probe runs in a forked child**
-(`nativeProbeLibrary`), which does the `dlopen` and either reports or dies; the
-parent waits and prints the verdict:
-
-```
-libtier0.so                        ok: loaded
-libclient.so                       ok: loaded
-libclient.so -> VClient017         ok: interface at 0x7f2c1a0040 (code 0)
-libengine.so                       CRASHED in dlopen: SIGSEGV (11)
-```
-
-`alarm()` in the child turns a hang into `SIGALRM`, so a stuck constructor is also
-an answer. Nothing the probe does can kill the process drawing the screen.
-
-### Reading it without adb
-
-This is the part the first version got wrong, and the phone said so. The transcript
-was written only to the app's internal `files/probe.log` — which is unreachable
-without root or adb, and since Android 11 `Android/data/` is closed to file
-managers too. A log nobody can open is not a log.
-
-So there are three ways out, in order of how little they ask of you:
-
-| Where | How it gets there |
-| --- | --- |
-| the screen | always, with **Share log** and **Copy** buttons under it |
-| `Documents/l4d1-probe.txt` | a `MediaStore` insert, which needs **no** storage permission on Android 10+ |
-| `files/probe.log` (internal) | for the replay at the top of the next launch |
-
-The path-based alternative — writing into `Documents/` with a `File` object — needs
-`MANAGE_EXTERNAL_STORAGE` on Android 11+, so the manifest does not ask for it, and
-no diagnostic is worth that permission. On Android 9 and older the manifest
-declares `WRITE_EXTERNAL_STORAGE`, capped at API 28, purely for the fallback path.
-
-The activity also prints the `packaged:` list of the APK's `lib/` directory, so a
-library whose name differs from the guess in `ValveActivity2.LIBRARIES` is visible
-in the transcript instead of silently skipped. Missing libraries are skipped, not
-fatal.
-
-If `liblauncher.so` itself fails to load, the failure is caught in the static
-initialiser and printed with the linker's own message — the usual cause is a
-dependency that was not built for aarch64, and the message names it.
-
-### Which tools it uses, and why that is not "the newest"
-
-The runner image has build-tools up to 37 and **JDK 11 as its default**. Taking
-the newest of each is how a step dies with an exit code and no sentence: later
-build-tools no longer ship `aapt`, and they expect a newer JDK than the default
-one. So the script pins `JAVA_HOME` to JDK 17 when the image provides it, prefers
-build-tools `34.0.0` when present, accepts `aapt2 link` when `aapt` is gone, and
-labels every phase's failure with a sentence instead of a number.
-
-### What has not been verified
-
-The packaging script and the Java side have **not been run**: this workspace has
-no Android SDK, so they cannot be built here. What is checked mechanically
-(`l4d1ctl/tests/test_apk.py`, 17 tests) is the part that would otherwise fail late
-and vaguely: every `native` method declared in Java has a C++ implementation with
-the exact JNI symbol name, the manifest declares a launchable exported activity,
-the probe block compiles, the script fails with a sentence rather than a stack of
-`command not found`, and the workflow actually calls it.
+A fork of the carrier is maintained separately from this branch.
 
 ## Checking a cross-compiled build on the host
 

@@ -47,8 +47,3 @@ dist/
 *.keystore
 *.jks.base64
 *.keystore.base64
-
-# Debug APK staging (CI)
-/apk-libs/
-/apk-out/
-/.keys/

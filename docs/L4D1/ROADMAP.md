@@ -13,19 +13,6 @@ Run 42999936541 (commit `1966bfb`) is the first green Android build:
 section of [BUILDING.md](BUILDING.md#status-it-builds) for what it took.
 `libgameui.so` is still missing, and nothing has run on a device yet.
 
-## Milestone: first contact with the device — **next**
-
-An unrooted phone cannot run a bare `.so`, so the next step is not a shell command
-on the device but a package: `scripts/build-apk.sh` wraps the tracked libraries in
-a debug APK whose whole job is to say how far loading gets (see
-[BUILDING.md](BUILDING.md#the-debug-apk)). It succeeds when the transcript on the
-phone reads `ok` for each module and an interface name for `libclient.so`.
-
-The APK builds: run 43007904508 packages `l4d1-debug.apk` in the same job as the
-libraries. It has not been **run** — nothing here has ever executed on a device —
-so the first launch is the first evidence that bionic accepts these modules at
-all. Installing it is the whole of the next step.
-
 
 ## Phase 0 — Launcher and content pipeline · done
 

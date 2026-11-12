@@ -12,15 +12,12 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 */
 
-#include <stdint.h> // intptr_t, used by the debug probe's handle marshalling
 #include <stdio.h>
 #include <string.h>
 #include <dlfcn.h>
 #include <jni.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #include <SDL_hints.h>
 #include "tier0/dbg.h"
@@ -49,145 +46,6 @@ DLL_EXPORT void Java_com_valvesoftware_ValveActivity2_setArgs(JNIEnv *env, jclas
 {
 	strncpy( java_args, env->GetStringUTFChars(str, NULL), sizeof( java_args ) - 1 );
 	java_args[sizeof( java_args ) - 1] = '\0';
-}
-
-// ---------------------------------------------------------------------------
-// Debug probe used by launcher/android/apk (ValveActivity2).
-//
-// Each probe runs in a forked child and the parent reads back a verdict. The
-// reason is that the interesting failure is a segfault inside a library's static
-// initialisers: loading the engine modules on a device where the engine has never
-// run is exactly the situation where a crash is likely, and a crash in the UI
-// process takes the report with it. Surviving is what makes the report readable.
-//
-// The child does dlopen/dlsym/CreateInterface, writes one line and _exit()s. It
-// calls no JNI and touches no C++ objects, because it is a fork of an ART process
-// and half of that process's state is not meant to be used from here.
-//
-// alarm() in the child turns a hang into SIGALRM, which the parent reports like
-// any other crash instead of waiting forever.
-// ---------------------------------------------------------------------------
-
-typedef void *( *CreateInterfaceFn )( const char *name, int *returnCode );
-
-static const int PROBE_TIMEOUT_SECONDS = 20;
-
-// Runs in the child. Async-signal-safety matters: write() and _exit() only, no
-// printf, no allocation, no Java.
-static void ProbeInChild( int outFd, const char *path, const char *interfaceName )
-{
-	char message[1024];
-
-	dlerror();
-	void *library = dlopen( path, RTLD_NOW | RTLD_GLOBAL );
-	if ( !library )
-	{
-		const char *error = dlerror();
-		snprintf( message, sizeof message, "dlopen failed: %s", error ? error : "unknown" );
-		write( outFd, message, strlen( message ) );
-		_exit( 2 );
-	}
-
-	if ( !interfaceName || !interfaceName[0] )
-	{
-		write( outFd, "loaded", 6 );
-		_exit( 0 );
-	}
-
-	CreateInterfaceFn factory = ( CreateInterfaceFn )dlsym( library, "CreateInterface" );
-	if ( !factory )
-	{
-		snprintf( message, sizeof message, "no CreateInterface export in the module" );
-		write( outFd, message, strlen( message ) );
-		_exit( 3 );
-	}
-
-	int returnCode = 0;
-	void *iface = factory( interfaceName, &returnCode );
-	if ( !iface )
-	{
-		snprintf( message, sizeof message, "CreateInterface returned null (code %d)", returnCode );
-		write( outFd, message, strlen( message ) );
-		_exit( 4 );
-	}
-
-	snprintf( message, sizeof message, "interface at %p (code %d)", iface, returnCode );
-	write( outFd, message, strlen( message ) );
-	_exit( 0 );
-}
-
-DLL_EXPORT jstring Java_com_valvesoftware_ValveActivity2_nativeProbeLibrary( JNIEnv *env, jclass *clazz,
-																				 jstring path, jstring interfaceName )
-{
-	const char *libraryPath = env->GetStringUTFChars( path, NULL );
-	const char *name = interfaceName ? env->GetStringUTFChars( interfaceName, NULL ) : NULL;
-
-	int fds[2];
-	if ( pipe( fds ) != 0 )
-	{
-		env->ReleaseStringUTFChars( path, libraryPath );
-		if ( name )
-			env->ReleaseStringUTFChars( interfaceName, name );
-		return env->NewStringUTF( "could not create a pipe" );
-	}
-
-	pid_t child = fork();
-	if ( child < 0 )
-	{
-		close( fds[0] );
-		close( fds[1] );
-		env->ReleaseStringUTFChars( path, libraryPath );
-		if ( name )
-			env->ReleaseStringUTFChars( interfaceName, name );
-		return env->NewStringUTF( "could not fork" );
-	}
-
-	if ( child == 0 )
-	{
-		close( fds[0] );
-		alarm( PROBE_TIMEOUT_SECONDS );
-		ProbeInChild( fds[1], libraryPath, name );
-		_exit( 1 );
-	}
-
-	close( fds[1] );
-
-	char childMessage[1024];
-	ssize_t length = read( fds[0], childMessage, sizeof childMessage - 1 );
-	close( fds[0] );
-	childMessage[length > 0 ? ( int )length : 0] = '\0';
-
-	int status = 0;
-	waitpid( child, &status, 0 );
-
-	const char *phase = ( name && name[0] ) ? "CreateInterface" : "dlopen";
-
-	char report[1600];
-	if ( WIFSIGNALED( status ) )
-	{
-		const int signalNumber = WTERMSIG( status );
-		const char *signalName = "signal";
-		if ( signalNumber == 11 ) signalName = "SIGSEGV";
-		else if ( signalNumber == 6 ) signalName = "SIGABRT";
-		else if ( signalNumber == 4 ) signalName = "SIGILL";
-		else if ( signalNumber == 8 ) signalName = "SIGFPE";
-		else if ( signalNumber == 14 ) signalName = "SIGALRM (timed out)";
-		snprintf( report, sizeof report, "CRASHED in %s: %s (%d)", phase, signalName, signalNumber );
-	}
-	else if ( WEXITSTATUS( status ) == 0 )
-	{
-		snprintf( report, sizeof report, "ok: %s", childMessage );
-	}
-	else
-	{
-		snprintf( report, sizeof report, "failed in %s (exit %d): %s", phase, WEXITSTATUS( status ), childMessage );
-	}
-
-	env->ReleaseStringUTFChars( path, libraryPath );
-	if ( name )
-		env->ReleaseStringUTFChars( interfaceName, name );
-
-	return env->NewStringUTF( report );
 }
 
 // Builds the engine argv from $APP_DATA_PATH/port.cfg (see launcher/portcore).

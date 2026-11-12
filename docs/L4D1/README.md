@@ -8,7 +8,7 @@ This folder is the working documentation for running **Left 4 Dead 1** (appid
 | [FEASIBILITY.md](FEASIBILITY.md) | What already works in this engine, what blocks L4D1, and which parts of the retail game cannot legally be reused. Read this before promising anyone a port. |
 | [ROADMAP.md](ROADMAP.md) | The order of work: launcher → asset loading → walkable maps → co-op skeleton → Director. Each phase has an exit criterion. |
 | [LAUNCHER.md](LAUNCHER.md) | The launcher that exists today: `l4d1ctl` (content fetching, mods, identity) and `launcher/portcore` (the C++ side that runs on the phone). |
-| [BUILDING.md](BUILDING.md) | Where the build happens and why the phone cannot do it: the NDK is an x86_64 host toolchain, so arm64 builds come from GitHub Actions as artifacts. Also the debug APK — the only way to run the result on a phone that is not rooted. |
+| [BUILDING.md](BUILDING.md) | Where the build happens and why the phone cannot do it: the NDK is an x86_64 host toolchain, so arm64 builds come from GitHub Actions as artifacts. |
 | [DEVIATIONS.md](DEVIATIONS.md) | Where this port knowingly differs from L4D1, how confident we are, and the rule that engine plumbing gets modernised while gameplay numbers do not. |
 | [INTERFACES.md](INTERFACES.md) | What L4D1's client and server actually ask the engine for, diffed against this SDK: what matches, what mismatches, and what this tree has never had. |
 | [MINING.md](MINING.md) | `l4d1ctl mine`: reading interface versions, netprops, convars and entity names out of the retail DLLs - and the line between interoperability information and copying expression. |
