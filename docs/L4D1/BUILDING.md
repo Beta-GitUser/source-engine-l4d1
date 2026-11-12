@@ -145,8 +145,15 @@ Two different layouts, and installing the wrong one is the classic mistake:
 The Android artifact is not just the four modules the engine looks up by name.
 `libclient.so` and `libserver.so` carry `DT_NEEDED` edges to `tier0`,
 `materialsystem`, `studiorender`, `datacache` and friends, so the artifact ships
-every `.so` the build produced — about twenty — and a carrier that copies only the
-named four gets a `dlopen` failure naming one of the others.
+every `.so` the build produced — **26 files at the time of writing** — plus the
+prebuilt third-party libraries from the submodule's `lib/android/<arch>/`
+(`libSDL2.so`), which waf does not produce. A carrier that copies only the named
+four gets a `dlopen` failure naming one of the others.
+
+Both halves of that sentence were once wrong here: the artifact carried four
+modules, and it did not carry SDL2 either. The collection step now reports the full
+name list as an annotation (`collected total::26 modules … names: …`), so the
+artifact's contents are checkable without downloading it.
 
 On Android the modules are `libclient.so` / `libserver.so` and they ship beside
 the engine binary (inside the APK's `lib/<abi>/`, or in the engine folder you

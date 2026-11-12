@@ -143,8 +143,8 @@ jobs:
         # when the job log does not come back (it returns EOF from some networks),
         # and "which modules were collected" is the one fact this step exists to
         # establish.
-        found=$(find . -name '*.so' -not -path './.ndk/*' -not -path './out/*' -not -path './thirdparty/*' -not -path './lib/android/*' -type f | sed 's|.*/||' | sort -u | head -20 | tr '\n' ' ')
-        echo "::notice title=shared objects in the build tree::$found"
+        found=$(find . -name '*.so' -not -path './.ndk/*' -not -path './out/*' -not -path './thirdparty/*' -not -path './lib/android/*' -type f | sed 's|.*/||' | sort -u | tr '\n' ' ')
+        echo "::notice title=shared objects in the build tree::$(echo "$found" | wc -w) files: $found"
         for name in libclient.so libserver.so liblauncher.so; do
           src=$(find . -name "$name" -type f -not -path "./out/*" | head -n1 || true)
           if [ -n "$src" ]; then
@@ -181,7 +181,23 @@ jobs:
             extra=$((extra + 1))
           fi
         done < <(find build -name '*.so' -type f | sort)
-        echo "::notice title=collected total::$(ls -1 out/*.so 2>/dev/null | wc -l) modules in the artifact ($extra beyond the named four)"
+        # Prebuilt third-party libraries are not produced by waf, so they are not
+        # in build/. libSDL2.so lives in the submodule's lib/android/<arch>/ and
+        # every module that touches SDL names it in DT_NEEDED. Leaving it out of
+        # the artifact moves the failure to the device, where it reads as
+        # "dlopen failed: library libSDL2.so not found" and nothing else.
+        prebuilt=0
+        if [ -d "lib/android/$ARCH" ]; then
+          for so in lib/android/$ARCH/*.so; do
+            [ -f "$so" ] || continue
+            cp "$so" "out/$(basename "$so")"
+            echo "::notice title=collected prebuilt::$(basename "$so") from $so"
+            prebuilt=$((prebuilt + 1))
+          done
+        fi
+        [ "$prebuilt" -gt 0 ] || echo "::warning::no prebuilt .so under lib/android/$ARCH - SDL2 will be missing from the artifact"
+
+        echo "::notice title=collected total::$(ls -1 out/*.so 2>/dev/null | wc -l) modules in the artifact ($extra from build/, $prebuilt prebuilt); names: $(ls -1 out/*.so 2>/dev/null | xargs -n1 basename | sort | tr '\n' ' ')"
         ls -l out || true
 
     - name: Verify the modules are really ${{ env.ARCH }}
