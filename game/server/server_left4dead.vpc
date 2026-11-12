@@ -1,0 +1,34 @@
+//-----------------------------------------------------------------------------
+//	SERVER_LEFT4DEAD.VPC
+//
+//	The L4D1 game module: HL2's server code (server_hl2.vpc, still listed in
+//	game/server/wscript) plus everything under left4dead/.
+//
+//	Why a separate VPC instead of editing server_hl2.vpc: server_hl2.vpc is shared
+//	with the `hl2` game target, and the point of this port is that HL2 stays
+//	buildable and comparable. Only the `left4dead` target gets L4D_OWN_PLAYER.
+//
+//	Note for anyone extending this: scripts/waifulib/vpc_parser.py ignores
+//	$Include. It concatenates the VPCs listed for a game in game/server/wscript,
+//	so this file only has to list what is *new* - the base lists come from
+//	server_base.vpc and server_hl2.vpc.
+//-----------------------------------------------------------------------------
+
+$Macro SRCDIR		"..\.."
+
+$Configuration
+{
+	$Compiler
+	{
+		$AdditionalIncludeDirectories	"$BASE;$SRCDIR\game\server\left4dead"
+		$PreprocessorDefinitions		"$BASE;HL2_DLL;USES_SAVERESTORE;L4D_OWN_PLAYER"
+	}
+}
+
+$Project "Server (L4D1)"
+{
+	$Folder	"Source Files"
+	{
+		$File	"left4dead\l4d_server_seam.cpp"
+	}
+}

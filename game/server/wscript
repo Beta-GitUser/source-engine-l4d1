@@ -21,7 +21,7 @@ games = {
 	# game/left4dead/bin, so the engine boots with L4D1 assets while the real
 	# L4D game module is being written (see docs/L4D1/GAMECODE.md). Movement,
 	# physics and map hosting come from HL2; L4D-specific entities are skipped.
-	'left4dead': ['server_base.vpc', 'server_hl2.vpc'],
+	'left4dead': ['server_base.vpc', 'server_hl2.vpc', 'server_left4dead.vpc'],
 	'tf': [
 		'server_base.vpc',
 		'server_econ_base.vpc',

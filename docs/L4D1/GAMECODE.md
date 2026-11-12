@@ -138,7 +138,21 @@ What is *not* is also worth knowing:
 ## Ladder from here
 
 1. **This commit.** HL2 module in `left4dead/bin`, map hosting, walker.
-2. **Own player.** `game/server/left4dead/l4d_player.{h,cpp}`:
+2. **Own player.** *Started as a seam, on purpose.* `game/server/left4dead/`
+   now exists and builds into the server module (`server_left4dead.vpc` adds it to
+   the `left4dead` target only; `L4D_OWN_PLAYER` is defined there and nowhere
+   else), and `CHL2_Player::Spawn` calls `L4D_Server_PlayerSpawned()` at the end,
+   which logs `L4D bootstrap: server seam active (map …)`. That line is how a log
+   answers "is this the bootstrap HL2 module or something of ours?".
+
+   The subclass can wait, and here is why: a **server-only** `CL4DPlayer` would
+   declare a new send table, the send table name travels to the client, and the
+   client can only build an entity for a netclass it registered. `hl2mp` gets away
+   with it because it ships both sides (`DT_HL2MP_Player` plus
+   `IMPLEMENT_CLIENTCLASS_DT`). So the class arrives with its client counterpart,
+   as written below, not before; the hook changes no netcode.
+
+   The full step remains:
    `class CL4DPlayer : public CBasePlayer` (or `CBaseMultiplayerPlayer` for
    team/4-slot support), only movement + view angles + health, no weapons.
    Client side: `game/client/left4dead/clientmode_l4d.{h,cpp}` +

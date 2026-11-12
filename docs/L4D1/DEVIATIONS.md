@@ -43,6 +43,7 @@ era-correct headers" is not an option that exists — the improvisation is force
 | Netprop wire layout | names taken from the binary, bit layout defined by us | the layout is not recoverable from strings, and both sides are ours | medium — names right, layout ours | demo playback, or retail interop |
 | Steam interfaces (`SteamUser013`, `SteamUtils004`, `SteamFriends005`, …) | shim exposes the versions our code asks for, with the user's real identity | this is the port's own Steam layer | high — our code, our contract | anything that consults a version we do not implement |
 | Entity/archival behaviour | HL2 SDK base, extended toward L4D1 | no L4D1 source exists | medium — observable behaviour only | a diff that shows drift from retail |
+| Server player seam | `L4D_Server_PlayerSpawned()` called from `CHL2_Player::Spawn` under `L4D_OWN_PLAYER`; the player class is still HL2's | a server-only player subclass would need a client netclass for its send table, which the ladder builds later | high for what it does (nothing but log) | any behaviour that differs from HL2 before step 2 lands |
 | Holdout / Last Stand mode | inferred from HUD resources (`HoldoutModeScoreboard`, `FinaleMeter`) | mode postdates L4D1's launch, data only | low — mostly guesswork | a config or map that exercises it |
 | Path case | lookups must work with Valve's mixed case (`Resource/UI/…`) on a case-sensitive filesystem | Android is case-sensitive; Windows was not | unknown yet | any "missing resource" on device — see below |
 

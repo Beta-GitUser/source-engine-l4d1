@@ -6,6 +6,10 @@
 
 #include "cbase.h"
 #include "hl2_player.h"
+
+#ifdef L4D_OWN_PLAYER
+#include "left4dead/l4d_server_seam.h"
+#endif
 #include "globalstate.h"
 #include "game.h"
 #include "gamerules.h"
@@ -1142,6 +1146,13 @@ void CHL2_Player::Spawn(void)
 	GetPlayerProxy();
 
 	SetFlashlightPowerDrainScale( 1.0f );
+
+#ifdef L4D_OWN_PLAYER
+	// Bootstrap seam: the only L4D-specific code that runs today. See
+	// game/server/left4dead/l4d_server_seam.h for why this is a hook rather than
+	// a subclass of this class.
+	L4D_Server_PlayerSpawned( this );
+#endif
 }
 
 //-----------------------------------------------------------------------------

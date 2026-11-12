@@ -110,7 +110,8 @@ def parse_vpcs( env ,vpcs, basedir ):
 	includes = []
 
 	for vpc in vpcs:
-		f=open(vpc, 'r').read().replace('\\\n', ';')
+		with open(vpc, 'r') as handle:
+			f = handle.read().replace('\\\n', ';')
 
 		re.sub(r'//.*', '', f)
 		l = f.split('\n')
