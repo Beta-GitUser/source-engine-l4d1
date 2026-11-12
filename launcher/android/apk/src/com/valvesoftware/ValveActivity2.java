@@ -1,47 +1,62 @@
 package com.valvesoftware;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.ContentValues;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.RandomAccessFile;
 
 /**
- * Debug shell for the L4D1 port.
+ * Debug shell for the port: load the engine modules and report how far it gets.
  *
- * The point of this activity is to answer, on the device, the questions that
- * cannot be answered anywhere else: will bionic load our modules, do they
- * resolve their dependencies, and does CreateInterface hand back the versions
- * this SDK advertises?
+ * Three constraints shaped this:
  *
- * It exists because an unrooted phone cannot run a .so by itself - the dynamic
- * linker only maps libraries into a process it creates - so an installed package
- * is the only carrier.
+ *  - An unrooted phone cannot run a bare .so; the linker only maps libraries
+ *    into a process it creates. So the package is the carrier.
  *
- * Two design decisions worth knowing:
+ *  - Loading the modules on a device where the engine has never run is likely to
+ *    segfault inside a static initialiser. That is the interesting result, and a
+ *    crash in this process would destroy it. Each probe therefore runs in a forked
+ *    child (see nativeProbeLibrary in launcher/android/main.cpp) and comes back as
+ *    a verdict - "ok", "CRASHED in dlopen: SIGSEGV (11)", "failed ..." - while
+ *    this process lives to print it.
  *
- *  - every step is written and flushed to a file before it runs, and the file is
- *    shown on the next launch. Without adb there is no logcat, and a probe that
- *    dies silently is worse than no probe.
- *  - the native surface is deliberately tiny (load a library, ask it for an
- *    interface, report the last dlopen/dlsym error), so a crash inside the
- *    engine cannot take the reporting machinery with it.
+ *  - There is no adb and no readable logcat, and the app's internal files are
+ *    unreachable from a file manager. So the transcript is on screen, copyable,
+ *    shareable, and mirrored to Documents/l4d1-probe.txt through MediaStore -
+ *    which needs no storage permission on Android 10+.
  */
 public class ValveActivity2 extends Activity {
     private static final String TAG = "L4D1Debug";
+
+    /** Kept for replaying the previous session. Unreachable from a file manager. */
     private static final String LOG_FILE = "probe.log";
 
-    /** Libraries to load, in dependency order. Missing ones are not fatal. */
+    /** The copy a human (or a file manager) can actually find. */
+    private static final String PUBLIC_LOG_NAME = "l4d1-probe.txt";
+
+    /** Library names to try. A name this build did not produce is skipped. */
     private static final String[] LIBRARIES = {
         "libtier0.so",
         "libtier1.so",
@@ -55,7 +70,7 @@ public class ValveActivity2 extends Activity {
         "libserver.so",
     };
 
-    /** Interfaces to ask each module for. Both our SDK's and retail's versions. */
+    /** Interfaces to ask for: this SDK's versions and retail's. */
     private static final String[][] INTERFACES = {
         {"libclient.so", "VClient017", "VClient016"},
         {"libserver.so", "ServerGameDLL010", "ServerGameDLL009", "ServerGameDLL005"},
@@ -65,28 +80,22 @@ public class ValveActivity2 extends Activity {
     private TextView output;
     private final StringBuilder transcript = new StringBuilder();
     private File logFile;
+    private String nativeDir;
+    private volatile boolean probing;
 
     // Implemented in launcher/android/main.cpp.
     private static native int setenv(String name, String value, int overwrite);
     private static native void setArgs(String args);
     private static native void nativeOnActivityResult();
+    private static native String nativeProbeLibrary(String path, String interfaceName);
 
-    private static native long nativeLoadLibrary(String path);
-    private static native long nativeCreateInterface(long handle, String name);
-    private static native String nativeLastError();
-
-    /** False when liblauncher.so itself would not load, so the probe is skipped. */
     private static boolean nativeReady;
     private static String nativeLoadError;
 
     static {
-        // Loaded by the platform from the APK's lib/ directory; the module under
-        // test is loaded by path in nativeLoadLibrary.
-        //
-        // The try/catch is not defensive habit: without adb there is no logcat,
-        // so an UnsatisfiedLinkError escaping class initialisation becomes a
-        // "keeps stopping" dialog with no explanation. Caught here, the message
-        // - which names the dependency that failed to resolve - lands on screen.
+        // Caught rather than left to escape: an UnsatisfiedLinkError out of a
+        // static initialiser is a "keeps stopping" dialog with no explanation,
+        // and the message names the dependency that failed to resolve.
         try {
             System.loadLibrary("launcher");
             nativeReady = true;
@@ -103,34 +112,32 @@ public class ValveActivity2 extends Activity {
         output.setBackgroundColor(Color.BLACK);
         output.setTextColor(Color.parseColor("#B0FFB0"));
         output.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        output.setTypeface(Typeface.MONOSPACE);
         output.setGravity(Gravity.START);
         output.setPadding(24, 24, 24, 24);
         output.setTextIsSelectable(true);
 
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(Color.BLACK);
+        page.addView(buttonRow());
+
         ScrollView scroll = new ScrollView(this);
         scroll.addView(output);
-        setContentView(scroll);
+        page.addView(scroll);
+        setContentView(page);
 
         logFile = new File(getFilesDir(), LOG_FILE);
+        nativeDir = getApplicationInfo().nativeLibraryDir;
 
-        StringBuilder start = new StringBuilder();
         String previous = readPreviousLog();
         if (previous != null && previous.length() > 0) {
-            start.append("=== previous run (ended ");
-            start.append(previous.endsWith("\n") ? "abruptly" : "cleanly");
-            start.append(") ===\n");
-            start.append(previous);
-            start.append("\n");
+            transcript.append("=== previous run ===\n").append(previous).append("\n");
         }
-        start.append("=== new run ===\n");
-        transcript.append(start);
+        transcript.append("=== new run ===\n");
         writeLog();
 
-        final String nativeDir = getApplicationInfo().nativeLibraryDir;
         log("nativeLibraryDir: " + nativeDir);
-        // Print what is actually packaged. A library name that does not match
-        // LIBRARIES is then obvious from the transcript instead of showing up as
-        // a silent "skip".
         String[] packaged = new File(nativeDir).list();
         if (packaged != null) {
             java.util.Arrays.sort(packaged);
@@ -138,83 +145,147 @@ public class ValveActivity2 extends Activity {
                 log("  packaged: " + name);
             }
         }
-        log("filesDir: " + getFilesDir());
-        log("device: " + android.os.Build.MODEL + " / " + android.os.Build.SUPPORTED_ABIS[0]
-                + " / API " + android.os.Build.VERSION.SDK_INT);
+        log("device: " + Build.MODEL + " / " + Build.SUPPORTED_ABIS[0]
+                + " / API " + Build.VERSION.SDK_INT);
 
         if (!nativeReady) {
             log("");
             log("FAIL  liblauncher.so did not load:");
             log("      " + nativeLoadError);
             log("");
-            log("Nothing else can be tested in this process. The message above");
-            log("names what the linker could not resolve: usually a library that");
-            log("was not packaged (check the 'packaged:' lines) or a dependency of");
-            log("liblauncher.so that did not get built for aarch64.");
-            writeLog();
+            log("Nothing can be probed in this process. The message names what the");
+            log("linker could not resolve - usually a dependency that is not in the");
+            log("packaged: list above.");
+            finishRun();
             return;
         }
 
+        startProbe();
+    }
+
+    private LinearLayout buttonRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button share = new Button(this);
+        share.setText("Share log");
+        share.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override
+            public void onClick(android.view.View view) {
+                shareTranscript();
+            }
+        });
+        row.addView(share);
+
+        Button copy = new Button(this);
+        copy.setText("Copy");
+        copy.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override
+            public void onClick(android.view.View view) {
+                copyTranscript();
+            }
+        });
+        row.addView(copy);
+
+        Button again = new Button(this);
+        again.setText("Probe again");
+        again.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override
+            public void onClick(android.view.View view) {
+                startProbe();
+            }
+        });
+        row.addView(again);
+
+        return row;
+    }
+
+    private void shareTranscript() {
+        android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(android.content.Intent.EXTRA_SUBJECT, "L4D1 debug probe");
+        send.putExtra(android.content.Intent.EXTRA_TEXT, transcript.toString());
+        startActivity(android.content.Intent.createChooser(send, "Share the probe log"));
+    }
+
+    private void copyTranscript() {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("L4D1 probe", transcript.toString()));
+            log("(transcript copied to the clipboard)");
+        }
+    }
+
+    private void startProbe() {
+        if (probing) {
+            return;
+        }
+        probing = true;
         new Thread(new Runnable() {
             @Override
             public void run() {
-                probe(nativeDir);
-                new Handler(Looper.getMainLooper()).post(new Runnable() {
-                    @Override
-                    public void run() {
-                        log("=== done ===");
-                        writeLog();
-                    }
-                });
+                try {
+                    runProbe();
+                } catch (Throwable failure) {
+                    log("the probe itself threw: " + failure);
+                } finally {
+                    finishRun();
+                    probing = false;
+                }
             }
         }).start();
     }
 
-    private void probe(String nativeDir) {
+    private void finishRun() {
         log("");
-        log("--- loading modules ---");
+        log("=== done ===");
+        log("Share or copy this, or read Documents/" + PUBLIC_LOG_NAME + ".");
+        writeLog();
+        publishToDocuments();
+    }
+
+    private void runProbe() {
+        log("");
+        log("--- loading modules (each in a forked child) ---");
+        int loaded = 0;
         for (String library : LIBRARIES) {
             File file = new File(nativeDir, library);
             if (!file.exists()) {
-                log("skip  " + library + " (not packaged)");
+                log("skip   " + library + " (not packaged) - see the packaged: list");
                 continue;
             }
-            long handle = nativeLoadLibrary(file.getAbsolutePath());
-            if (handle == 0) {
-                log("FAIL  " + library + ": " + nativeLastError());
-            } else {
-                log("ok    " + library);
+            String verdict = nativeProbeLibrary(file.getAbsolutePath(), null);
+            log(pad(library) + verdict);
+            if (verdict != null && verdict.startsWith("ok")) {
+                loaded++;
             }
         }
 
         log("");
-        log("--- CreateInterface ---");
+        log("--- CreateInterface (still one child per question) ---");
         for (String[] request : INTERFACES) {
-            String library = request[0];
-            File file = new File(nativeDir, library);
+            File file = new File(nativeDir, request[0]);
             if (!file.exists()) {
                 continue;
             }
-            // Re-open rather than caching handles in Java: the handle is just a
-            // number to this side, and dlopen is reference counted.
-            long handle = nativeLoadLibrary(file.getAbsolutePath());
-            if (handle == 0) {
-                continue;
-            }
             for (int i = 1; i < request.length; i++) {
-                long pointer = nativeCreateInterface(handle, request[i]);
-                if (pointer != 0) {
-                    log("ok    " + library + " -> " + request[i]);
-                } else {
-                    log("none  " + library + " -> " + request[i]);
-                }
+                String verdict = nativeProbeLibrary(file.getAbsolutePath(), request[i]);
+                log(pad(request[0] + " -> " + request[i]) + verdict);
             }
         }
 
         log("");
-        log("If every module loaded and an interface came back, the port's");
-        log("foundation works on this device: bionic loaded our aarch64 code,");
-        log("its dependencies resolved, and the factory exported.");
+        log(loaded + " of " + LIBRARIES.length + " modules loaded.");
+        log("A line saying CRASHED is a result, not a dead end: it names the");
+        log("library, the phase, and the signal. That is the finding.");
+    }
+
+    private static String pad(String text) {
+        StringBuilder padded = new StringBuilder(text);
+        while (padded.length() < 34) {
+            padded.append(' ');
+        }
+        return padded.toString();
     }
 
     private synchronized void log(String line) {
@@ -230,7 +301,7 @@ public class ValveActivity2 extends Activity {
         writeLog();
     }
 
-    /** Truncate-and-write, so a crash leaves the last completed step on disk. */
+    /** Truncate-and-write, so a kill leaves the last completed step on disk. */
     private synchronized void writeLog() {
         FileOutputStream stream = null;
         try {
@@ -238,7 +309,7 @@ public class ValveActivity2 extends Activity {
             stream.write(transcript.toString().getBytes("UTF-8"));
             stream.flush();
         } catch (IOException ignored) {
-            // Nothing useful to do: the screen still has the transcript.
+            // The screen still has it, and Share does not touch the filesystem.
         } finally {
             if (stream != null) {
                 try {
@@ -246,6 +317,62 @@ public class ValveActivity2 extends Activity {
                 } catch (IOException ignored) {
                 }
             }
+        }
+    }
+
+    /**
+     * Mirror the transcript to Documents, where any file manager can open it.
+     *
+     * On Android 10+ this is a MediaStore insert, which needs no storage
+     * permission: writing to a public directory by path would need
+     * MANAGE_EXTERNAL_STORAGE, and no diagnostic is worth that permission.
+     */
+    private void publishToDocuments() {
+        final String text = transcript.toString();
+
+        if (Build.VERSION.SDK_INT >= 29) {
+            Uri created = null;
+            try {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, PUBLIC_LOG_NAME);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS);
+                Uri collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+                created = getContentResolver().insert(collection, values);
+                if (created != null) {
+                    OutputStream stream = getContentResolver().openOutputStream(created);
+                    if (stream != null) {
+                        stream.write(text.getBytes("UTF-8"));
+                        stream.close();
+                    }
+                    log("(also written to Documents/" + PUBLIC_LOG_NAME + ")");
+                    return;
+                }
+            } catch (Throwable failure) {
+                log("(could not write to Documents: " + failure + ")");
+                if (created != null) {
+                    try {
+                        getContentResolver().delete(created, null, null);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }
+
+        // Android 9 and older: the plain path works with WRITE_EXTERNAL_STORAGE,
+        // declared in the manifest for exactly these versions.
+        try {
+            File documents = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+            if (!documents.exists() && !documents.mkdirs()) {
+                throw new IOException("no Documents directory");
+            }
+            FileOutputStream stream = new FileOutputStream(new File(documents, PUBLIC_LOG_NAME));
+            stream.write(text.getBytes("UTF-8"));
+            stream.close();
+            log("(also written to Documents/" + PUBLIC_LOG_NAME + ")");
+        } catch (Throwable failure) {
+            log("(could not write to Documents: " + failure + ")");
+            log("(Share or Copy still work)");
         }
     }
 

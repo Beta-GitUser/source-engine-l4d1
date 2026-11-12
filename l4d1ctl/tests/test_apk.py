@@ -53,8 +53,7 @@ class JniParityTests(unittest.TestCase):
         """If this list changes, the Java side must change with it."""
         self.assertEqual(
             sorted(java_native_methods()),
-            ["nativeCreateInterface", "nativeLastError", "nativeLoadLibrary",
-             "nativeOnActivityResult", "setArgs", "setenv"],
+            ["nativeOnActivityResult", "nativeProbeLibrary", "setArgs", "setenv"],
         )
 
     def test_activity_class_matches_the_jni_prefix(self):
@@ -102,8 +101,12 @@ class JavaShapeTests(unittest.TestCase):
         """Background: an UnsatisfiedLinkError out of a static initialiser is
         fatal, and the phone has no logcat to explain it."""
         text = JAVA.read_text(encoding="utf-8")
-        block = text[text.index("static {"):]
-        block = block[:block.index("    }")]
+        # Anchored to a brace at the start of a line: "    }" also appears inside
+        # the eight-space indentation of `        } catch`, so slicing on the
+        # substring silently cut the block in half.
+        match = re.search(r"\n    static \{(.*?)\n    \}", text, re.S)
+        self.assertIsNotNone(match, "no static initialiser found")
+        block = match.group(1)
         self.assertIn("try", block)
         self.assertIn("catch", block)
         self.assertIn("nativeReady", block)
@@ -365,6 +368,84 @@ class FakeSdkPackagingTests(unittest.TestCase):
         self.assertIn("no classes.dex produced", result.stderr)
 
 
+class CrashIsolationTests(unittest.TestCase):
+    """Loading engine modules on a device where the engine never ran can segfault.
+
+    That crash is the finding, so it must not be able to destroy the report. The
+    probe runs in a forked child; these tests keep that property from being
+    designed away.
+    """
+
+    def probe_source(self):
+        text = NATIVE.read_text(encoding="utf-8", errors="replace")
+        start = text.index("typedef void *( *CreateInterfaceFn")
+        end = text.index("// Builds the engine argv from", start)
+        return text[start:end]
+
+    def test_the_probe_runs_in_a_child(self):
+        source = self.probe_source()
+        for call in ("fork()", "waitpid(", "pipe(", "WIFSIGNALED(", "WTERMSIG("):
+            self.assertIn(call, source, f"the probe no longer {call}")
+
+    def test_a_hang_is_a_result_too(self):
+        """A child stuck in a constructor must not wedge the UI forever."""
+        self.assertIn("alarm(", self.probe_source())
+
+    def test_a_crash_is_reported_by_signal_name(self):
+        source = self.probe_source()
+        self.assertIn("SIGSEGV", source)
+        self.assertIn("CRASHED in", source)
+
+    def test_the_child_touches_no_java_and_does_not_return(self):
+        source = self.probe_source()
+        child = source[source.index("static void ProbeInChild"):source.index("DLL_EXPORT jstring")]
+        self.assertNotIn("env->", child, "the forked child must not call JNI")
+        self.assertNotIn("Msg(", child, "the forked child must not log through tier0")
+        self.assertIn("_exit(", child)
+
+    def test_the_signal_headers_are_included(self):
+        text = NATIVE.read_text(encoding="utf-8", errors="replace")
+        for header in ("<signal.h>", "<sys/wait.h>", "<unistd.h>"):
+            self.assertIn(header, text)
+
+
+class LogDeliveryTests(unittest.TestCase):
+    """The log has to be reachable from a phone with no adb.
+
+    Since Android 11, Android/data is closed to file managers, and the app's
+    internal files were never readable at all. The first version of this activity
+    wrote only there, which is the same as not writing it.
+    """
+
+    def test_the_log_goes_to_documents(self):
+        text = JAVA.read_text(encoding="utf-8")
+        self.assertIn("Environment.DIRECTORY_DOCUMENTS", text)
+
+    def test_documents_is_written_through_mediastore(self):
+        """PROBLEM: a plain path needs MANAGE_EXTERNAL_STORAGE on Android 11+."""
+        text = JAVA.read_text(encoding="utf-8")
+        self.assertIn("MediaStore.Files.getContentUri", text)
+        self.assertIn("MediaStore.MediaColumns.RELATIVE_PATH", text)
+
+    def test_no_all_files_permission(self):
+        """Parsed, not grepped: the manifest explains in a comment why it does not
+        ask for this, and a substring check cannot tell an explanation from a
+        request."""
+        manifest = MANIFEST.read_text(encoding="utf-8")
+        requested = set(re.findall(r'<uses-permission[^>]*android:name="([^"]+)"', manifest))
+        self.assertNotIn("android.permission.MANAGE_EXTERNAL_STORAGE", requested)
+        self.assertNotIn("android.permission.READ_EXTERNAL_STORAGE", requested)
+        self.assertEqual(requested, {"android.permission.WRITE_EXTERNAL_STORAGE"})
+
+    def test_the_transcript_can_leave_the_app_without_the_filesystem(self):
+        text = JAVA.read_text(encoding="utf-8")
+        self.assertIn("Intent.ACTION_SEND", text)
+        self.assertIn("ClipboardManager", text)
+
+    def test_the_internal_copy_is_still_kept_for_replay(self):
+        self.assertIn('"probe.log"', JAVA.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -378,6 +459,10 @@ class NativeProbeCompilesTests(unittest.TestCase):
     """
 
     STUBS = r"""
+    #include <unistd.h>
+    #include <signal.h>
+    #include <sys/wait.h>
+    #include <string.h>
     typedef int jint;
     typedef long long jlong;
     typedef void *jstring;

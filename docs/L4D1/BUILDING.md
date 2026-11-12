@@ -196,38 +196,52 @@ rather than about our code:
 2. do their `DT_NEEDED` dependencies resolve on a real device;
 3. does `CreateInterface` hand back the versions this SDK advertises.
 
+### Crashes are the expected result, so the crash is contained
+
+Loading the engine modules on a device where the engine has never run is likely to
+segfault inside a static initialiser. That is the finding, not an accident, so it
+must not be able to destroy the report. **Each probe runs in a forked child**
+(`nativeProbeLibrary`), which does the `dlopen` and either reports or dies; the
+parent waits and prints the verdict:
+
+```
+libtier0.so                        ok: loaded
+libclient.so                       ok: loaded
+libclient.so -> VClient017         ok: interface at 0x7f2c1a0040 (code 0)
+libengine.so                       CRASHED in dlopen: SIGSEGV (11)
+```
+
+`alarm()` in the child turns a hang into `SIGALRM`, so a stuck constructor is also
+an answer. Nothing the probe does can kill the process drawing the screen.
+
 ### Reading it without adb
 
-The transcript is written to the app's private `files/probe.log` **after every
-step**, and shown again at the top of the next launch, labelled `previous run
-(ended abruptly)`. A probe that crashes the process therefore still leaves the
-last completed step on screen. This matters because a non-rooted phone cannot
-read another app's logcat and has no adb cable — the app has to be its own
-black box.
+This is the part the first version got wrong, and the phone said so. The transcript
+was written only to the app's internal `files/probe.log` — which is unreachable
+without root or adb, and since Android 11 `Android/data/` is closed to file
+managers too. A log nobody can open is not a log.
+
+So there are three ways out, in order of how little they ask of you:
+
+| Where | How it gets there |
+| --- | --- |
+| the screen | always, with **Share log** and **Copy** buttons under it |
+| `Documents/l4d1-probe.txt` | a `MediaStore` insert, which needs **no** storage permission on Android 10+ |
+| `files/probe.log` (internal) | for the replay at the top of the next launch |
+
+The path-based alternative — writing into `Documents/` with a `File` object — needs
+`MANAGE_EXTERNAL_STORAGE` on Android 11+, so the manifest does not ask for it, and
+no diagnostic is worth that permission. On Android 9 and older the manifest
+declares `WRITE_EXTERNAL_STORAGE`, capped at API 28, purely for the fallback path.
 
 The activity also prints the `packaged:` list of the APK's `lib/` directory, so a
-library whose name differs from the guess in `ValveActivity2.LIBRARIES` is
-visible in the transcript instead of silently skipped. Missing libraries are
-skipped, not fatal: the probe is useful at any degree of completeness.
+library whose name differs from the guess in `ValveActivity2.LIBRARIES` is visible
+in the transcript instead of silently skipped. Missing libraries are skipped, not
+fatal.
 
 If `liblauncher.so` itself fails to load, the failure is caught in the static
 initialiser and printed with the linker's own message — the usual cause is a
 dependency that was not built for aarch64, and the message names it.
-
-### Installing it
-
-Copy the APK to the phone and open it (allowing "install unknown apps"), or
-`adb install -r` from a machine that has one. It is signed with a debug key, which
-is fine for sideloading and useless for distribution; see
-[Signing](#signing-make-the-keystore-before-you-need-it).
-
-That key is generated once and cached between runs (`.keys/`, via
-`actions/cache`), not regenerated each time: a fresh key per build would make the
-next APK refuse to install over the previous one with
-`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, which on a phone without a cable means
-uninstalling first every time. It is cached rather than committed — it is only a
-debug key, but a private key in git is a habit worth not having. If the cache
-ever misses, the cost is one uninstall.
 
 ### Which tools it uses, and why that is not "the newest"
 
