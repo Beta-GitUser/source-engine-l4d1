@@ -9,16 +9,20 @@ Reads the image out of a pack (or off disk), then prints the header the engine
 refuses it on: the four-byte id, the version, the scene/string counts, whether
 the entry table fits in the bytes that exist, and the first entries and strings.
 
-This build wants id 'VSIF' - stored as the bytes 46 49 53 56 ('FISV') - and
-version 2. Source: public/scenefilecache/SceneImageFile.h
+This build wants id 'VSIF' - the bytes 56 53 49 46 - and version 2. L4D1's content
+ships version 3 with the same layout, which this script checks entry by entry
+instead of assuming. Source: public/scenefilecache/SceneImageFile.h
 """
 
 import struct
 import sys
 from pathlib import Path
 
-WANT_ID = b"FISV"      # MAKEID('V','S','I','F') little endian
+# MAKEID('V','S','I','F') is 0x46495356 (the macro's parameters are reversed), which
+# is the bytes 56 53 49 46 on disk: the ASCII text "VSIF". L4D1 writes exactly that.
+WANT_ID = b"VSIF"
 WANT_VERSION = 2
+KNOWN_VERSIONS = (2, 3)     # 3 is L4D1's; the layout is the same, checked below
 IMAGE = "scenes/scenes.image"
 
 
@@ -112,6 +116,110 @@ def dump(image, source):
     if len(image) < 20:
         print(f"verdict: {len(image)} bytes is too short to hold the 20-byte header.")
         return 1
+
+    n_id, version, scenes, strings, entry_offset = struct.unpack_from("<5i", image, 0)
+    ident = image[:4]
+    label = "VSIF" if ident == WANT_ID else "'%s'%s" % (
+        "".join(chr(b) if 32 <= b < 127 else "." for b in ident),
+        " (byte order reversed; Valve writes FISV)" if ident == b"VSIF" else "")
+
+    print("header:")
+    print(f"  id                {label}   (want VSIF = bytes 56 53 49 46)")
+    print(f"  version           {version}   (this tree wants {WANT_VERSION},")
+    print(f"                                  and reads {', '.join(map(str, KNOWN_VERSIONS))} if the layout holds)")
+    print(f"  nNumScenes        {scenes}")
+    print(f"  nNumStrings       {strings}")
+    print(f"  nSceneEntryOffset {entry_offset}")
+
+    problems = []
+    id_ok = ident in (WANT_ID, b"FISV")
+    if not id_ok:
+        problems.append("id does not match: not a Source scene image")
+    if version not in KNOWN_VERSIONS:
+        problems.append(f"version {version}, this tree knows {KNOWN_VERSIONS}")
+    if scenes <= 0:
+        problems.append(f"nNumScenes is {scenes}")
+    if entry_offset < 20:
+        problems.append(f"nSceneEntryOffset {entry_offset} points inside the header")
+    elif scenes > 0 and entry_offset + 16 * scenes > len(image):
+        problems.append(f"entry table ends at {entry_offset + 16 * scenes}, "
+                        f"file is {len(image)} - truncated")
+
+    if strings > 0 and 20 + 4 * strings <= len(image):
+        print("  first strings:")
+        for index in range(min(strings, 8)):
+            offset = struct.unpack_from("<I", image, 20 + 4 * index)[0]
+            if 0 <= offset < len(image):
+                stop = image.find(b"\0", offset)
+                print(f"    {image[offset:stop if stop > 0 else offset + 64]!r}")
+
+    if scenes > 0 and entry_offset + 16 <= len(image):
+        print("  first entries (crc32, data offset, length, summary offset):")
+        for index in range(min(scenes, (len(image) - entry_offset) // 16, 8)):
+            crc, off, length, summary = struct.unpack_from("<Iiii", image,
+                                                           entry_offset + 16 * index)
+            outside = "" if 0 <= off and 0 <= length and off + length <= len(image) \
+                else "   OUTSIDE THE FILE"
+            print(f"    [{index}] {crc:08x}  {off:>10}  {length:>9}  {summary:>10}{outside}")
+
+    # The layout check is what decides whether a version this engine was not built
+    # for can still be read: walk every entry and summary, as version 2 structs.
+    checked = inside_data = inside_summary = good_sounds = 0
+    entries_end = entry_offset + 16 * max(scenes, 0)
+    msecs = [None, None]
+    sounds = [None, None]
+    if id_ok and 0 < scenes <= 200000 and entry_offset + 16 * scenes <= len(image):
+        for index in range(scenes):
+            _crc, off, length, summary = struct.unpack_from(
+                "<Iiii", image, entry_offset + 16 * index)
+            checked += 1
+            if 0 <= off and 0 <= length and off + length <= len(image):
+                inside_data += 1
+            if summary < entries_end or summary + 8 > len(image):
+                continue
+            inside_summary += 1
+            scene_msecs, num_sounds = struct.unpack_from("<Ii", image, summary)
+            msecs = [scene_msecs if msecs[0] is None else min(msecs[0], scene_msecs),
+                     scene_msecs if msecs[1] is None else max(msecs[1], scene_msecs)]
+            sounds = [num_sounds if sounds[0] is None else min(sounds[0], num_sounds),
+                      num_sounds if sounds[1] is None else max(sounds[1], num_sounds)]
+            if 0 <= num_sounds <= 4096 and summary + 8 + 4 * num_sounds <= len(image):
+                ids = struct.unpack_from(f"<{num_sounds}i", image, summary + 8)
+                if all(0 <= sound < strings for sound in ids):
+                    good_sounds += 1
+
+    layout_sound = bool(checked) and checked == scenes and inside_data == checked \
+        and inside_summary == checked and good_sounds == checked
+    if checked:
+        print()
+        print("layout check (as version 2 structs):")
+        print(f"  entries inside the file     {inside_data}/{checked}")
+        print(f"  summaries inside the file   {inside_summary}/{checked}")
+        print(f"  sound indices in the pool   {good_sounds}/{checked}")
+        if msecs[0] is not None:
+            print(f"  msecs range                 {msecs[0]}..{msecs[1]}")
+            print(f"  sounds per scene            {sounds[0]}..{sounds[1]}")
+    print()
+
+    for problem in problems:
+        print(f"problem: {problem}")
+
+    if id_ok and version in KNOWN_VERSIONS and layout_sound and not problems:
+        print(f"verdict: readable as version {WANT_VERSION}"
+              + ("" if version == WANT_VERSION else
+                 f"; the version {version} number and nothing else is the difference") + ".")
+        print("         If the engine still rejects it, it is reading a different copy:")
+        print("         a loose file shadowing the pack, or another pack mounted first.")
+        return 0
+    if id_ok and version not in KNOWN_VERSIONS:
+        print(f"verdict: a scene image, but version {version}; this tree knows "
+              f"{KNOWN_VERSIONS}. The stock check makes any other version fatal.")
+        return 1
+    if id_ok and not layout_sound:
+        print("verdict: id and version are fine but the contents do not hold together; "
+              "the copy in the pack is likely truncated.")
+        return 1
+    return 1
 
     n_id, version, scenes, strings, entry_offset = struct.unpack_from("<5i", image, 0)
     ident = image[:4]

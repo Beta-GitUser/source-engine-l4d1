@@ -84,8 +84,14 @@ Exit code is 0 when the image is one this build would accept, 1 when it is not
 (a scene image from another version, a truncated entry table, zeros where the
 header should be), 2 when there is nothing to read.
 
-This build wants id `VSIF` (on disk: the bytes `FISV`) and version `2`. The
-verdict distinguishes the three failures that look identical in the engine log:
+This build wants id `VSIF` — the bytes `56 53 49 46`, and note that `MAKEID`'s
+parameters are reversed so `MAKEID('V','S','I','F')` is `0x46495356` — and version
+`2`. **L4D1's own file is version 3** with an identical header, entry table and
+summaries; the tool verifies that by walking all 5877 entries and their summaries
+rather than assuming it, and the engine accepts version 3 on the same check
+(`CSceneFileCache: … is version 3, reading it as version 2`).
+
+The verdict distinguishes the failures that look identical in the engine log:
 
 * **an older or newer version** — the file is a scene image, the engine's check is
   just stricter than the content;

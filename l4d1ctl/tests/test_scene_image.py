@@ -12,21 +12,30 @@ from l4d1ctl import cli, sceneimage, vpk
 
 
 def build_image(version=2, scenes=1, name=b"scenes/test.vcd", payload=b"\xde\xad\xbe\xef",
-                scene_count=None):
-    """A scene image laid out the way public/scenefilecache/SceneImageFile.h describes."""
-    string_blob = name + b"\0"
-    count = scenes if scene_count is None else scene_count
-    entry_offset = 20 + 4            # header + one u32 string offset
-    data_offset = entry_offset + 16 * count
+                sound_index=0):
+    """A scene image laid out as public/scenefilecache/SceneImageFile.h describes.
+
+    header | string table | entries | summaries | data | strings, with every offset
+    absolute, so the same validation the tool runs on a real file passes here.
+    """
+    entry_offset = 20 + 4                    # header + one u32 string offset
+    summaries_offset = entry_offset + 16 * scenes
+    summary_size = 8 + 4 * 1                 # msecs, numSounds, one sound index
+    data_offset = summaries_offset + summary_size * scenes
     string_offset = data_offset + len(payload)
+
     parts = [
-        struct.pack("<5i", sceneimage.SCENE_IMAGE_ID, version, count, 1, entry_offset),
+        struct.pack("<5i", sceneimage.SCENE_IMAGE_ID, version, scenes, 1, entry_offset),
         struct.pack("<I", string_offset),
     ]
-    for _ in range(count):
-        parts.append(struct.pack("<Iiii", 0x12345678, data_offset, len(payload), 0))
+    for index in range(scenes):
+        parts.append(struct.pack("<Iiii", 0x12345678, data_offset, len(payload),
+                                 summaries_offset + summary_size * index))
+    for _ in range(scenes):
+        parts.append(struct.pack("<Ii", 1234, 1))
+        parts.append(struct.pack("<i", sound_index))
     parts.append(payload)
-    parts.append(string_blob)
+    parts.append(name + b"\0")
     return b"".join(parts)
 
 
@@ -40,15 +49,20 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(report.strings, ["scenes/test.vcd"])
         self.assertEqual(report.entries[0]["data_length"], 4)
 
-    def test_the_id_lands_in_the_file_as_fisv(self):
-        """MAKEID('V','S','I','F') is a big-endian integer; on disk it reads FISV."""
+    def test_the_id_lands_in_the_file_as_vsif(self):
+        """MAKEID's parameters are reversed: MAKEID('V','S','I','F') is 0x46495356.
+
+        Little endian that is the bytes 56 53 49 46, i.e. the text 'VSIF' - which is
+        what L4D1's own scenes.image starts with, so the id was never the problem.
+        """
         data = build_image()
-        self.assertEqual(data[:4], b"FISV")
+        self.assertEqual(data[:4], b"VSIF")
         self.assertEqual(data[:4], sceneimage.SCENE_IMAGE_FILE_BYTES)
+        self.assertEqual(sceneimage.SCENE_IMAGE_ID, 0x46495356)
 
     def test_a_byte_swapped_id_is_reported_not_hidden(self):
         data = bytearray(build_image())
-        data[0:4] = b"VSIF"
+        data[0:4] = b"FISV"
         report = sceneimage.parse(sceneimage.Source(label="memory", data=bytes(data)))
         self.assertIn("byte order reversed", report.id_text)
         self.assertTrue(report.ok, report.problems)
@@ -59,6 +73,21 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(any("version 1" in p for p in report.problems), report.problems)
         self.assertIn("version 1", report.verdict)
         self.assertIn("fatal", report.verdict)
+
+    def test_version_3_is_accepted_when_the_layout_holds(self):
+        """L4D1 ships version 3 with the version 2 layout; that is the whole difference."""
+        report = sceneimage.parse(sceneimage.Source(label="memory", data=build_image(version=3)))
+        self.assertTrue(report.ok, report.problems)
+        self.assertEqual(report.layout["entries_checked"], 1)
+        self.assertEqual(report.layout["sound_indices_valid"], 1)
+        self.assertIn("this port accepts 3 and reads it as 2", report.verdict)
+
+    def test_a_sound_index_outside_the_pool_breaks_the_layout(self):
+        report = sceneimage.parse(sceneimage.Source(
+            label="memory", data=build_image(version=3, sound_index=99)))
+        self.assertFalse(report.ok)
+        self.assertTrue(any("sound index" in p for p in report.layout["problems"]),
+                        report.layout["problems"])
 
     def test_a_short_file_says_so(self):
         report = sceneimage.parse(sceneimage.Source(label="memory", data=b"FISV\x02\x00"))
@@ -211,7 +240,7 @@ class StandaloneScriptTests(unittest.TestCase):
             image.write_bytes(build_image(version=1))
             result = self._run(image)
             self.assertEqual(result.returncode, 1)
-            self.assertIn("another version", result.stdout)
+            self.assertIn("version 1", result.stdout)
 
     def test_it_declines_a_directory_without_one(self):
         with tempfile.TemporaryDirectory() as tmp:

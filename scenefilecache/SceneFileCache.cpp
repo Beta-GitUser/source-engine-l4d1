@@ -28,6 +28,80 @@ bool IsBufferBinaryVCD( char *pBuffer, int bufferSize )
 	return false;
 }
 
+//-----------------------------------------------------------------------------
+// A scene image from a version this tree was not written for is worth reading if
+// the bytes agree with the layout we know. L4D1 ships version 3 and its header,
+// entry table and summaries are the version 2 structs - checked on device: 5877
+// entries, every data range, summary and sound index inside the file. Verify that
+// on the bytes in hand rather than trusting the version number, and read
+// everything with memcpy so an unaligned offset cannot fault on aarch64.
+//-----------------------------------------------------------------------------
+static bool SceneImageLayoutIsSane( const void *pRawData, int nBytes, const SceneImageHeader_t *pHeader )
+{
+	if ( !pRawData || nBytes < (int)sizeof( SceneImageHeader_t ) )
+		return false;
+
+	const byte *pData = (const byte *)pRawData;
+	const int nScenes = pHeader->nNumScenes;
+	const int nStrings = pHeader->nNumStrings;
+	const int nEntryOffset = pHeader->nSceneEntryOffset;
+
+	if ( nScenes <= 0 || nScenes > 200000 )
+		return false;
+	if ( nStrings < 0 || nStrings > 1000000 )
+		return false;
+	if ( (long long)sizeof( SceneImageHeader_t ) + 4LL * nStrings > nBytes )
+		return false;
+	if ( nEntryOffset < (int)sizeof( SceneImageHeader_t ) )
+		return false;
+	if ( (long long)nEntryOffset + (long long)nScenes * (long long)sizeof( SceneImageEntry_t ) > nBytes )
+		return false;
+
+	// The string table is offsets from the header; every one has to point inside.
+	for ( int i = 0; i < nStrings; i++ )
+	{
+		unsigned int nOffset = 0;
+		V_memcpy( &nOffset, pData + sizeof( SceneImageHeader_t ) + 4 * i, sizeof( nOffset ) );
+		if ( nOffset >= (unsigned int)nBytes )
+			return false;
+	}
+
+	const int nEntriesEnd = nEntryOffset + nScenes * (int)sizeof( SceneImageEntry_t );
+	for ( int i = 0; i < nScenes; i++ )
+	{
+		SceneImageEntry_t entry;
+		V_memcpy( &entry, pData + nEntryOffset + i * (int)sizeof( SceneImageEntry_t ), sizeof( entry ) );
+
+		if ( entry.nDataOffset < 0 || entry.nDataLength < 0 ||
+			 (long long)entry.nDataOffset + (long long)entry.nDataLength > nBytes )
+			return false;
+
+		if ( entry.nSceneSummaryOffset < nEntriesEnd ||
+			 (long long)entry.nSceneSummaryOffset + 8 > nBytes )
+			return false;
+
+		int nNumSounds = 0;
+		V_memcpy( &nNumSounds, pData + entry.nSceneSummaryOffset + 4, sizeof( nNumSounds ) );
+		if ( nNumSounds < 0 || nNumSounds > 4096 )
+			return false;
+		if ( (long long)entry.nSceneSummaryOffset + 8 + 4LL * nNumSounds > nBytes )
+			return false;
+
+		for ( int s = 0; s < nNumSounds; s++ )
+		{
+			int nSound = 0;
+			V_memcpy( &nSound, pData + entry.nSceneSummaryOffset + 8 + 4 * s, sizeof( nSound ) );
+			if ( nSound < 0 || nSound >= nStrings )
+				return false;
+		}
+	}
+
+	return true;
+}
+
+// L4D1's scene images are version 3; this SDK's constant is 2. Same layout.
+#define SCENE_IMAGE_VERSION_L4D1 3
+
 class CSceneFileCache : public CBaseAppSystem< ISceneFileCache >
 {
 public:
@@ -93,8 +167,17 @@ InitReturnVal_t CSceneFileCache::Init()
 			else
 			{
 				SceneImageHeader_t *pHeader = (SceneImageHeader_t *)m_SceneImageFile.Base();
-				if ( pHeader->nId != SCENE_IMAGE_ID ||
-					pHeader->nVersion != SCENE_IMAGE_VERSION )
+				bool bReadableVersion = pHeader->nVersion == SCENE_IMAGE_VERSION;
+				if ( !bReadableVersion && pHeader->nVersion == SCENE_IMAGE_VERSION_L4D1 &&
+					 SceneImageLayoutIsSane( m_SceneImageFile.Base(), nRead, pHeader ) )
+				{
+					// Reading a v3 image as v2 is the whole port: the structs are the same.
+					Warning( "CSceneFileCache: %s is version %d, reading it as version %d "
+							 "(layout checked entry by entry).\n", pSceneImageName,
+							 pHeader->nVersion, SCENE_IMAGE_VERSION );
+					bReadableVersion = true;
+				}
+				if ( pHeader->nId != SCENE_IMAGE_ID || !bReadableVersion )
 				{
 					// A scene image built by a different Source game is not worth dying
 					// for. The image only makes scenes cheaper to read; every caller

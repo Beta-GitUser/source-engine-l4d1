@@ -40,11 +40,16 @@ from typing import List, Optional
 from . import vpk
 
 SCENE_IMAGE_PATH = "scenes/scenes.image"
-# MAKEID('V','S','I','F') is 0x56534946 as an integer, which lands in the file as
-# the bytes 46 49 53 56 ("FISV") on a little-endian machine.
-SCENE_IMAGE_ID = 0x56534946
-SCENE_IMAGE_FILE_BYTES = b"FISV"
+# MAKEID( 'V','S','I','F' ) is (('F'<<24)|('I'<<16)|('S'<<8)|'V') = 0x46495356 - the
+# macro's parameters are in reverse order - which lands on disk as the bytes
+# 56 53 49 46, i.e. the ASCII text "VSIF". L4D1's own scenes.image starts with exactly
+# those four bytes, so the id matches and only the version differs.
+SCENE_IMAGE_ID = 0x46495356
+SCENE_IMAGE_FILE_BYTES = b"VSIF"
 SCENE_IMAGE_VERSION = 2
+# Versions this tree can read the bytes of. L4D1 ships version 3; the header,
+# entry and summary layout is identical (checked entry by entry in validate()).
+SCENE_IMAGE_VERSIONS = (2, 3)
 
 HEADER = struct.Struct("<5i")
 ENTRY = struct.Struct("<Iiii")
@@ -80,6 +85,7 @@ class Report:
     entries: List[dict] = field(default_factory=list)
     strings: List[str] = field(default_factory=list)
     problems: List[str] = field(default_factory=list)
+    layout: dict = field(default_factory=dict)
     verdict: str = ""
     ok: bool = False
     head: bytes = b""
@@ -99,6 +105,7 @@ class Report:
             "entries": self.entries,
             "strings": self.strings,
             "problems": self.problems,
+            "layout": self.layout,
             "ok": self.ok,
             "verdict": self.verdict,
         }
@@ -153,6 +160,77 @@ def _string_at(data: bytes, offset: int) -> str:
     return data[offset:end].decode("ascii", "replace")
 
 
+def validate(image: bytes, num_scenes: int, num_strings: int, entry_offset: int,
+             *, limit: int = 200000) -> dict:
+    """Check every entry and summary against the bytes that exist.
+
+    This is what decides whether a version this tree was not built for can still
+    be read: if all N entries and their summaries land inside the file, the
+    layout is the one ``SceneImageFile.h`` describes, whatever the version number
+    says. Numbers are collected too, because a layout that shifted by one field
+    shows up as absurd ``msecs`` or a sound index outside the string pool.
+    """
+    entries_end = entry_offset + num_scenes * ENTRY.size
+    result = {
+        "entries_checked": 0,
+        "entries_inside_file": 0,
+        "summaries_inside_file": 0,
+        "sound_indices_valid": 0,
+        "msecs": [None, None],
+        "num_sounds": [None, None],
+        "samples": [],
+        "problems": [],
+        "complete": False,
+    }
+
+    if num_scenes <= 0 or num_scenes > limit:
+        result["problems"].append(f"{num_scenes} scenes is not a number this reads")
+        return result
+
+    checked = 0
+    for index in range(num_scenes):
+        position = entry_offset + index * ENTRY.size
+        if position + ENTRY.size > len(image):
+            break
+        _crc, data_offset, data_length, summary_offset = ENTRY.unpack_from(image, position)
+        checked += 1
+        if 0 <= data_offset and 0 <= data_length and data_offset + data_length <= len(image):
+            result["entries_inside_file"] += 1
+        elif len(result["problems"]) < 6:
+            result["problems"].append(
+                f"entry {index}: data {data_offset}+{data_length} outside {len(image)} bytes")
+
+        if summary_offset < entries_end or summary_offset + 8 > len(image):
+            if len(result["problems"]) < 6:
+                result["problems"].append(
+                    f"entry {index}: summary at {summary_offset}, outside "
+                    f"[{entries_end}, {len(image)})")
+            continue
+        result["summaries_inside_file"] += 1
+        msecs, num_sounds = struct.unpack_from("<Ii", image, summary_offset)
+        for key, value in (("msecs", msecs), ("num_sounds", num_sounds)):
+            low, high = result[key]
+            result[key] = [value if low is None else min(low, value),
+                           value if high is None else max(high, value)]
+        if len(result["samples"]) < 4:
+            result["samples"].append({"msecs": msecs, "num_sounds": num_sounds})
+
+        if 0 <= num_sounds <= 4096 and summary_offset + 8 + 4 * num_sounds <= len(image):
+            sounds = struct.unpack_from(f"<{num_sounds}i", image, summary_offset + 8)
+            if all(0 <= sound < num_strings for sound in sounds):
+                result["sound_indices_valid"] += 1
+            elif len(result["problems"]) < 6:
+                result["problems"].append(
+                    f"entry {index}: a sound index points outside {num_strings} strings")
+        elif len(result["problems"]) < 6:
+            result["problems"].append(
+                f"entry {index}: {num_sounds} sounds does not fit after {summary_offset}")
+
+    result["entries_checked"] = checked
+    result["complete"] = checked == num_scenes
+    return result
+
+
 def parse(source: Source) -> Report:
     data = source.data
     report = Report(source=source, size=len(data), head=data[:64])
@@ -179,13 +257,14 @@ def parse(source: Source) -> Report:
     # id as an integer without pinning the byte order.
     if file_id == SCENE_IMAGE_FILE_BYTES:
         report.id_text = "VSIF"
-    elif file_id == b"VSIF":
-        report.id_text = "VSIF (byte order reversed: the file starts 'VSIF', Valve writes 'FISV')"
+    elif file_id == b"FISV":
+        report.id_text = "FISV (byte order reversed; this engine's id lands as 'VSIF')"
     else:
         report.id_text = _printable(file_id)
 
-    if file_id not in (SCENE_IMAGE_FILE_BYTES, b"VSIF"):
-        report.problems.append(f"id is {file_id.hex()} ('{_printable(file_id)}'), expected 'FISV'")
+    if file_id not in (SCENE_IMAGE_FILE_BYTES, b"FISV"):
+        report.problems.append(
+            f"id is {file_id.hex()} ('{_printable(file_id)}'), expected 'VSIF'")
         if file_id == b"\0\0\0\0":
             report.verdict = ("The first four bytes are zero, which is what a failed or "
                               "stubbed read looks like, not a different format. Suspect the "
@@ -245,27 +324,64 @@ def parse(source: Source) -> Report:
                         f"which is outside {len(data)} bytes")
             report.entries.append(entry)
 
-    report.ok = report.id_text.startswith("VSIF") and n_version == SCENE_IMAGE_VERSION \
-        and not report.problems
+    # Only worth walking when the header claims something possible.
+    if not report.problems or all("version" in problem for problem in report.problems):
+        report.layout = validate(data, n_scenes, n_strings, n_entry_offset)
+        if not report.layout["complete"]:
+            report.problems.append(
+                f"only {report.layout['entries_checked']} of {n_scenes} entries are inside "
+                "the file")
 
-    if report.ok:
+    layout_sound = bool(report.layout) and report.layout["complete"] and \
+        report.layout["entries_inside_file"] == report.layout["entries_checked"] and \
+        report.layout["summaries_inside_file"] == report.layout["entries_checked"] and \
+        report.layout["sound_indices_valid"] == report.layout["entries_checked"]
+
+    id_ok = file_id in (SCENE_IMAGE_FILE_BYTES, b"FISV")
+    version_ok = n_version in SCENE_IMAGE_VERSIONS
+    other_problems = [problem for problem in report.problems if "version" not in problem]
+
+    report.ok = id_ok and version_ok and layout_sound and not other_problems
+
+    scenes_word = f"{n_scenes} scene{'' if n_scenes == 1 else 's'}"
+    strings_word = f"{n_strings} string{'' if n_strings == 1 else 's'}"
+
+    if report.ok and n_version != SCENE_IMAGE_VERSION:
         report.verdict = (
-            "A scene image this build should accept (id VSIF, version "
-            f"{n_version}, {n_scenes} scene{'' if n_scenes == 1 else 's'}, "
-            f"{n_strings} string{'' if n_strings == 1 else 's'}, {len(data)} bytes). "
-            "If the engine still rejects it, it is reading a different file than this "
-            "one: check which pack is mounted first, or whether a loose copy shadows it.")
-    elif n_version != SCENE_IMAGE_VERSION and report.id_text.startswith("VSIF"):
+            f"A version {n_version} scene image whose layout is the version 2 one: all "
+            f"{report.layout['entries_checked']} entries and their summaries lie inside the "
+            f"file, every sound index points into {n_strings} strings, msecs "
+            f"{report.layout['msecs'][0]}..{report.layout['msecs'][1]}, "
+            f"{report.layout['num_sounds'][0]}..{report.layout['num_sounds'][1]} sounds per "
+            "scene. The stock check in this tree only accepts version "
+            f"{SCENE_IMAGE_VERSION} and kills the process otherwise; this port accepts "
+            f"{n_version} and reads it as {SCENE_IMAGE_VERSION}.")
+    elif report.ok:
         report.verdict = (
-            f"A scene image, but version {n_version} where this build requires "
-            f"{SCENE_IMAGE_VERSION}. The stock engine makes that fatal; this port now "
-            "warns and loads scenes individually. The version 1 layout is not described "
-            "anywhere in this tree, so the numbers above are read as if it were v2 and "
-            "are only trustworthy as far as they are self-consistent.")
+            f"A scene image this build should accept (id VSIF, version {n_version}, "
+            f"{scenes_word}, {strings_word}, {len(data)} bytes). If the engine still "
+            "rejects it, it is reading a different file than this one: check which pack is "
+            "mounted first, or whether a loose copy shadows it.")
+    elif id_ok and not version_ok:
+        report.verdict = (
+            f"A scene image, but version {n_version}; this tree knows "
+            f"{', '.join(str(v) for v in SCENE_IMAGE_VERSIONS)}. The stock check makes any "
+            "other version fatal, and the numbers above are read as if the layout were "
+            "version 2.")
+        if layout_sound:
+            report.verdict += (
+                " They do hold up: every entry, summary and sound index lands inside the "
+                "file, so the version number is the only difference.")
+    elif id_ok and version_ok:
+        report.verdict = (
+            "The id and version are right but the contents do not hold together: see the "
+            "layout check and the problems above. If entries point past the end of the "
+            "file, the copy in the pack is truncated.")
     else:
         report.verdict = (
-            "The header does not hold together: see the problems above. If the size and "
-            "the entry table disagree, the file in the pack is truncated.")
+            "Not a scene image: the id does not match. Whatever the engine read is either "
+            "a different file or not one it can use.")
+
     return report
 
 
@@ -305,6 +421,24 @@ def render(report: Report, *, dump: int = 64) -> str:
                 flag = "  OUTSIDE THE FILE" if entry.get("outside_file") else ""
                 lines.append(f"    [{index}] {entry['crc32']}  {entry['data_offset']:>10}"
                              f"  {entry['data_length']:>9}  {entry['summary_offset']:>10}{flag}")
+        lines.append("")
+
+    if report.layout:
+        layout = report.layout
+        lines.append("layout check (as version 2 structs):")
+        lines.append(f"  entries inside the file     "
+                     f"{layout['entries_inside_file']}/{layout['entries_checked']}")
+        lines.append(f"  summaries inside the file   "
+                     f"{layout['summaries_inside_file']}/{layout['entries_checked']}")
+        lines.append(f"  sound indices in the pool   "
+                     f"{layout['sound_indices_valid']}/{layout['entries_checked']}")
+        if layout["msecs"][0] is not None:
+            lines.append(f"  msecs range                 "
+                         f"{layout['msecs'][0]}..{layout['msecs'][1]}")
+            lines.append(f"  sounds per scene            "
+                         f"{layout['num_sounds'][0]}..{layout['num_sounds'][1]}")
+        for problem in layout["problems"][:6]:
+            lines.append(f"  ! {problem}")
         lines.append("")
 
     if report.problems:
