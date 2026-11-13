@@ -48,9 +48,47 @@ cannot find it, the problem is mounting, not content. `[absent]` means the downl
 lacks it, and nothing in this repository can conjure it up.
 
 The `Requested non-existent write path MOD!` spam that accompanies these lines is
-also upstream's: nothing in this tree ever registers a `game_write`/`mod_write`
-path ID, so the lookup falls through to the default write path and logs a warning
-first. It is noise, not an error.
+also upstream's: nothing registers a path under the ID `MOD` (or its `mod_write`
+twin), so every write goes through `GetWritePath()`, misses, warns, and lands on
+the default write path. Savegames, `sound.cache` and download lists all use that
+ID, which is why it fires ~32 times before anything loads.
+
+`l4d1ctl init` now writes a `mod |gameinfo_path|.` search path, so those calls
+resolve to the game directory — the same place the fallback already used — and the
+warning stops. If you still see it, the gameinfo.txt on the device predates that
+line: `python3 -m l4d1ctl init --force`, or add the line by hand.
+
+## Reading the boot log: what was mounted
+
+On a phone there is no console to type `path` into, and "the file is missing"
+looks identical to "the file was never mounted" — both print `couldn't find`. So
+filesystem init now reports both sides itself, right after the search paths are
+loaded:
+
+```
+[fs] mounted search paths:
+---------------
+Paths:
+"/storage/emulated/0/srceng/left4dead/" "GAME"
+"/storage/emulated/0/srceng/platform/" "PLATFORM"
+[fs] boot asset materials/dev/identitylightwarp.vtf: found
+[fs] boot asset materials/debug/debugluxelsnoalpha.vtf: MISSING
+[fs] boot asset materials/engine/normalizedrandomdirections2d.vtf: MISSING
+[fs] boot asset materials/console/background01_widescreen.vtf: MISSING
+[fs] pak01_dir.vpk in the game directory: absent
+```
+
+Three things to read off it:
+
+* **the list of `GAME` paths** — if the game directory is not there, nothing else
+  matters; the search path, not the content, is the problem.
+* **`(VPK)` next to a path** — this tree mounts a VPK only when a search path
+  names the file (`AddSearchPathInternal` dispatches on `.vpk`), so a `pak01_dir.vpk`
+  that exists but does not appear as a `(VPK)` line is content the engine cannot
+  see. L4D1 content is loose files, so for a depot install the directory paths are
+  the whole story.
+* **`found` vs `MISSING`** — the verdict for the four fallback assets, resolved
+  through the engine's own search paths rather than a host-side scan.
 
 ## Tier 0 — `selftest`: rehearse the whole toolchain
 

@@ -743,9 +743,37 @@ FSReturnCode_t FileSystem_LoadSearchPaths( CFSSearchPathsInit &initInfo )
 	initInfo.m_pFileSystem->MarkPathIDByRequestOnly( "game_write", true );
 	initInfo.m_pFileSystem->MarkPathIDByRequestOnly( "mod_write", true );
 
-#ifdef _DEBUG	
-	// initInfo.m_pFileSystem->PrintSearchPaths();
-#endif
+	// What was mounted, and can the engine see the handful of assets it asks for
+	// before a single map loads? On a phone there is no console to type "path"
+	// into, and a missing file looks exactly like an unmounted one in the log -
+	// both read as "couldn't find materials/...". Ten lines here turn that from a
+	// guess into a fact in the next log that gets pasted anywhere.
+	{
+		Msg( "[fs] mounted search paths:\n" );
+		initInfo.m_pFileSystem->PrintSearchPaths();
+
+		// The four the engine requests while the material system comes up. None of
+		// them is fatal; the point is which side of "absent vs unmounted" they are on.
+		static const char *s_pBootAssets[] =
+		{
+			"materials/dev/identitylightwarp.vtf",
+			"materials/debug/debugluxelsnoalpha.vtf",
+			"materials/engine/normalizedrandomdirections2d.vtf",
+			"materials/console/background01_widescreen.vtf",
+		};
+		for ( int i = 0; i < (int)( sizeof( s_pBootAssets ) / sizeof( s_pBootAssets[0] ) ); i++ )
+		{
+			Msg( "[fs] boot asset %s: %s\n", s_pBootAssets[i],
+				 initInfo.m_pFileSystem->FileExists( s_pBootAssets[i] ) ? "found" : "MISSING" );
+		}
+
+		// L4D-era content lives in pak01_dir.vpk and this tree only mounts a VPK
+		// when a search path names it (basefilesystem.cpp AddSearchPathInternal),
+		// so whether that file is even present in the game directory is the first
+		// thing to establish when content looks empty.
+		Msg( "[fs] pak01_dir.vpk in the game directory: %s\n",
+			 initInfo.m_pFileSystem->FileExists( "pak01_dir.vpk" ) ? "present" : "absent" );
+	}
 
 	return FS_OK;
 }
