@@ -22,6 +22,12 @@
 #include <fcntl.h>
 #endif
 
+#if defined( POSIX ) && defined( __aarch64__ ) && !defined( SWDS )
+#include <dlfcn.h>
+#include <unwind.h>
+#include <string.h>
+#endif
+
 #if defined( USE_SDL )
 #include "SDL.h"
 #endif
@@ -375,6 +381,60 @@ bool Sys_MessageBox(const char *title, const char *info, bool bShowOkAndCancel)
 bool g_bUpdateMinidumpComment = true;
 void BuildMinidumpComment( char const *pchSysErrorText, bool bRealCrash );
 
+#if defined( POSIX ) && defined( __aarch64__ ) && !defined( SWDS )
+// A fatal Error() ends up here, and Breakpad takes the SIGTRAP raised below: the
+// engine dies with one sentence and no location, on a device where nobody can
+// attach a debugger. One unwound stack, printed before that trap, turns "it
+// stopped after X" into "it stopped in libclient.so+0x1a3f28".
+//
+// Addresses are printed relative to the module they belong to, because the
+// modules ship as a build artifact with symbols: `addr2line -e libclient.so
+// 0x1a3f28` names the function and the line when this log gets read.
+struct SysBacktraceState_t
+{
+	uintptr_t	frames[ 96 ];
+	int			count;
+};
+
+static _Unwind_Reason_Code Sys_BacktraceCallback( struct _Unwind_Context *pContext, void *pState )
+{
+	SysBacktraceState_t *pBacktrace = (SysBacktraceState_t *)pState;
+
+	if ( pBacktrace->count >= (int)( sizeof( pBacktrace->frames ) / sizeof( pBacktrace->frames[0] ) ) )
+		return _URC_END_OF_STACK;
+
+	pBacktrace->frames[ pBacktrace->count++ ] = (uintptr_t)_Unwind_GetIP( pContext );
+	return _URC_NO_REASON;
+}
+
+static void Sys_PrintBacktrace( void )
+{
+	SysBacktraceState_t backtrace;
+	backtrace.count = 0;
+	_Unwind_Backtrace( Sys_BacktraceCallback, &backtrace );
+
+	Msg( "##### stack (%d frames):\n", backtrace.count );
+
+	for ( int i = 0; i < backtrace.count; i++ )
+	{
+		Dl_info info;
+		if ( dladdr( (void *)backtrace.frames[ i ], &info ) && info.dli_fname && info.dli_fbase )
+		{
+			const char *pName = strrchr( info.dli_fname, '/' );
+			pName = pName ? pName + 1 : info.dli_fname;
+			Msg( "#####  %2d: %s+0x%lx\n", i, pName,
+				 (unsigned long)( backtrace.frames[ i ] - (uintptr_t)info.dli_fbase ) );
+		}
+		else
+		{
+			Msg( "#####  %2d: 0x%lx\n", i, (unsigned long)backtrace.frames[ i ] );
+		}
+	}
+}
+#else
+#define Sys_PrintBacktrace()
+#endif
+
 void Sys_Error_Internal( bool bMinidump, const char *error, va_list argsList )
 {
 	char		text[1024];
@@ -402,6 +462,8 @@ void Sys_Error_Internal( bool bMinidump, const char *error, va_list argsList )
 	// Write the error to the log and ensure the log contents get written to disk
 	g_Log.Printf( "Engine error: %s\n", text );
 	g_Log.Flush();
+
+	Sys_PrintBacktrace();
 
 	g_bInErrorExit = true;
 

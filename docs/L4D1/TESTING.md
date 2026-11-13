@@ -58,6 +58,40 @@ search paths — the same place the fallback already used — so those calls res
 instead of warning. If the warnings persist, the `libfilesystem_stdio.so` on the
 device predates that change; the gameinfo is not the thing to edit.
 
+## When it stops: the `##### stack` block
+
+A fatal `Error()` ends in `Sys_Error`, and Breakpad takes the `SIGTRAP` it raises:
+one sentence in the log and nothing else, on a device where nobody can attach a
+debugger. So `Sys_Error` now unwinds and prints the call stack first, with every
+address relative to the module it came from:
+
+```
+##### stack (14 frames):
+#####   0: libengine.so+0x2f1c40
+#####   1: libengine.so+0x2f1d08
+#####   2: libclient.so+0x1a3f28
+...
+```
+
+The modules are built with debug info, so that relative address names the
+function, file and line:
+
+```sh
+addr2line -e libclient.so 0x1a3f28
+c++filt <symbol>            # the tree is C++; names come out mangled
+```
+
+`Engine error: ...` lines come from the same place, so a log that stops on a
+message is a log with a stack under it — read the stack, not the sentence.
+
+Two startup failures that used to be fatal are not any more:
+
+* **`scenes/scenes.image` from another Source game** — the scene image is only a
+  cache that makes scene playback cheaper; every caller already copes with "not
+  in the image". A different id or version is now a warning that prints what the
+  file's header actually says, and the engine loads scenes individually.
+* **A scene image too short to hold a header** — same treatment, same reason.
+
 ## Reading the boot log: what was mounted
 
 On a phone there is no console to type `path` into, and "the file is missing"

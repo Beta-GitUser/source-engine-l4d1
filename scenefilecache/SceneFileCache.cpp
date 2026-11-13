@@ -83,11 +83,32 @@ InitReturnVal_t CSceneFileCache::Init()
 
 		if ( filesystem->ReadFile( pSceneImageName, "GAME", m_SceneImageFile ) )
 		{
-			SceneImageHeader_t *pHeader = (SceneImageHeader_t *)m_SceneImageFile.Base();
-			if ( pHeader->nId != SCENE_IMAGE_ID || 
-				pHeader->nVersion != SCENE_IMAGE_VERSION )
+			int nRead = m_SceneImageFile.TellMaxPut();
+			if ( nRead < (int)sizeof( SceneImageHeader_t ) )
 			{
-				Error( "CSceneFileCache: Bad scene image file %s\n", pSceneImageName );
+				Warning( "CSceneFileCache: %s is %d bytes, too short to be a scene image. "
+						 "Scenes will be loaded individually.\n", pSceneImageName, nRead );
+				m_SceneImageFile.Purge();
+			}
+			else
+			{
+				SceneImageHeader_t *pHeader = (SceneImageHeader_t *)m_SceneImageFile.Base();
+				if ( pHeader->nId != SCENE_IMAGE_ID ||
+					pHeader->nVersion != SCENE_IMAGE_VERSION )
+				{
+					// A scene image built by a different Source game is not worth dying
+					// for. The image only makes scenes cheaper to read; every caller
+					// handles "not in the image" already (GetSceneBufferSize returns 0,
+					// LoadScene returns NULL), and on a phone a fatal error here is
+					// indistinguishable from the port crashing. Say what the file
+					// actually contains, then carry on without it.
+					Warning( "CSceneFileCache: %s is not a scene image this build understands "
+							 "(id 0x%08X version %d, %d bytes; expected 0x%08X version %d). "
+							 "Scenes will be loaded individually.\n",
+							 pSceneImageName, (unsigned int)pHeader->nId, pHeader->nVersion,
+							 nRead, (unsigned int)SCENE_IMAGE_ID, SCENE_IMAGE_VERSION );
+					m_SceneImageFile.Purge();
+				}
 			}
 		}
 		else
