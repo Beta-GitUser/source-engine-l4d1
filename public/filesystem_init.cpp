@@ -532,6 +532,40 @@ static void FileSystem_AddLoadedSearchPath(
 	}
 
 	initInfo.m_pFileSystem->AddSearchPath( fullLocationPath, pPathID, PATH_ADD_TO_TAIL );
+
+	// L4D-era content lives inside pak01_dir.vpk, and L4D1's gameinfo lists only
+	// directories: SearchPaths { Game left4dead_dlc3, Game |gameinfo_path|.,
+	// Game hl2 }. Nothing in this tree looks inside a pack on its own -
+	// AddSearchPathInternal dispatches on ".vpk" and AddPackFiles scans for zip
+	// files - so the game boots with a pak01_dir.vpk sitting in its own directory
+	// and reports every material in it as missing. Making a directory search path
+	// bring its packs with it is what the retail build must be doing, and it keeps
+	// Valve's gameinfo (and any content drop) working as written.
+	if ( V_stristr( fullLocationPath, ".vpk" ) == NULL )
+	{
+		char szDir[ MAX_PATH ];
+		Q_strncpy( szDir, fullLocationPath, sizeof( szDir ) );
+		V_AppendSlash( szDir, sizeof( szDir ) );
+
+		char szPattern[ MAX_PATH ];
+		Q_snprintf( szPattern, sizeof( szPattern ), "%s*_dir.vpk", szDir );
+
+		FileFindHandle_t hFind = NULL;
+		const char *pFound = initInfo.m_pFileSystem->FindFirst( szPattern, &hFind );
+		while ( pFound )
+		{
+			// The pack is lower priority than loose files in the same directory,
+			// which is the order Valve's content is layered in.
+			char szVpk[ MAX_PATH ];
+			Q_snprintf( szVpk, sizeof( szVpk ), "%s%s", szDir, pFound );
+			initInfo.m_pFileSystem->AddSearchPath( szVpk, pPathID, PATH_ADD_TO_TAIL );
+			pFound = initInfo.m_pFileSystem->FindNext( hFind );
+		}
+		if ( hFind )
+		{
+			initInfo.m_pFileSystem->FindClose( hFind );
+		}
+	}
 }
 
 static int SortStricmp( char * const * sz1, char * const * sz2 )
@@ -734,6 +768,15 @@ FSReturnCode_t FileSystem_LoadSearchPaths( CFSSearchPathsInit &initInfo )
 
 	pMainFile->deleteThis();
 
+	// Valve's later gameinfo files - L4D1's included - stopped registering a MOD
+	// search path, but the engine still reads and writes savegames (MOD_DIR in
+	// engine/host_saverestore.cpp), sound.cache and download lists through path ID
+	// "MOD". The concept survives from older Source: MOD is the directory holding
+	// gameinfo.txt, which is exactly what m_ModPath is. Registering it restores
+	// what those builds did automatically - without it GetWritePath() warns 32
+	// times a boot and every one of those calls lands in this directory anyway.
+	initInfo.m_pFileSystem->AddSearchPath( initInfo.m_ModPath, "MOD", PATH_ADD_TO_TAIL );
+
 	// Also, mark specific path IDs as "by request only". That way, we won't waste time searching in them
 	// when people forget to specify a search path.
 	initInfo.m_pFileSystem->MarkPathIDByRequestOnly( "executable_path", true );
@@ -773,6 +816,14 @@ FSReturnCode_t FileSystem_LoadSearchPaths( CFSSearchPathsInit &initInfo )
 		// thing to establish when content looks empty.
 		Msg( "[fs] pak01_dir.vpk in the game directory: %s\n",
 			 initInfo.m_pFileSystem->FileExists( "pak01_dir.vpk" ) ? "present" : "absent" );
+
+		// Where saves, sound.cache and download lists actually go. A warning about a
+		// missing write path is only noise if this names a real directory.
+		char szWritePath[ MAX_PATH ];
+		if ( initInfo.m_pFileSystem->GetSearchPath( "MOD", false, szWritePath, sizeof( szWritePath ) ) > 0 )
+			Msg( "[fs] write path MOD: %s\n", szWritePath );
+		else
+			Msg( "[fs] write path MOD: not registered; writes fall back to the first search path\n" );
 	}
 
 	return FS_OK;

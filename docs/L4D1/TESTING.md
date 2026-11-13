@@ -53,10 +53,10 @@ twin), so every write goes through `GetWritePath()`, misses, warns, and lands on
 the default write path. Savegames, `sound.cache` and download lists all use that
 ID, which is why it fires ~32 times before anything loads.
 
-`l4d1ctl init` now writes a `mod |gameinfo_path|.` search path, so those calls
-resolve to the game directory — the same place the fallback already used — and the
-warning stops. If you still see it, the gameinfo.txt on the device predates that
-line: `python3 -m l4d1ctl init --force`, or add the line by hand.
+The engine now registers the gameinfo directory under path ID `MOD` while loading
+search paths — the same place the fallback already used — so those calls resolve
+instead of warning. If the warnings persist, the `libfilesystem_stdio.so` on the
+device predates that change; the gameinfo is not the thing to edit.
 
 ## Reading the boot log: what was mounted
 
@@ -82,11 +82,11 @@ Three things to read off it:
 
 * **the list of `GAME` paths** — if the game directory is not there, nothing else
   matters; the search path, not the content, is the problem.
-* **`(VPK)` next to a path** — this tree mounts a VPK only when a search path
-  names the file (`AddSearchPathInternal` dispatches on `.vpk`), so a `pak01_dir.vpk`
-  that exists but does not appear as a `(VPK)` line is content the engine cannot
-  see. L4D1 content is loose files, so for a depot install the directory paths are
-  the whole story.
+* **`(VPK)` next to a path** — every directory search path mounts the `*_dir.vpk`
+  packs sitting in it, so after `<game dir>/` there should be a
+  `(VPK)<game dir>/pak01_dir.vpk` line. `pak01_dir.vpk: present` together with no
+  matching `(VPK)` line means content the engine cannot see, which is exactly what
+  this port did before filesystem init mounted packs itself.
 * **`found` vs `MISSING`** — the verdict for the four fallback assets, resolved
   through the engine's own search paths rather than a host-side scan.
 

@@ -25,32 +25,6 @@ class GameInfoTests(unittest.TestCase):
         search = root.find("filesystem").find("searchpaths")
         self.assertTrue(any(gameinfo.MODS_SEARCH_PATH in (c.value or "") for c in search.children))
 
-    def test_mod_path_is_registered_for_savegames(self):
-        """The engine writes saves and sound.cache through path ID "MOD".
-
-        Nothing registered it, so every such call logged "Requested non-existent
-        write path MOD!" and fell back to the first search path. Registering the
-        game directory under that ID points it at the directory writes already
-        landed in, and stops the warning.
-        """
-        text = gameinfo.render()
-        nodes = kv.loads(text)
-        search = kv.find(nodes, "GameInfo").find("filesystem").find("searchpaths")
-        mods = [c for c in search.children if (c.key or "").lower() == "mod"]
-        self.assertEqual(len(mods), 1)
-        self.assertEqual(mods[0].value, "|gameinfo_path|.")
-
-    def test_check_wants_the_mod_path(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            paths = make_paths(Path(tmp))
-            paths.gamedir.mkdir(parents=True)
-            paths.gameinfo.write_text(
-                '"GameInfo" { FileSystem { SearchPaths { Game |gameinfo_path|. '
-                f'Game |gameinfo_path|{gameinfo.MODS_SEARCH_PATH} }} }}',
-                encoding="utf-8")
-            problems = gameinfo.check(paths)
-            self.assertTrue(any("write path MOD" in p for p in problems), problems)
-
     def test_render_options(self):
         spec = gameinfo.GameInfoSpec(mount_mods=False, mount_platform=False, appid=500,
                                      extra_game_paths=("custom",))
