@@ -73,6 +73,13 @@ python3 -m l4d1ctl scene /storage/emulated/0/srceng/left4dead/pak01_dir.vpk --js
 python3 -m l4d1ctl scene ~/scenes.image --write /tmp/copy.image
 ```
 
+With no repository on the device, `scripts/scene-image.py` does the same thing
+with nothing but `python3` — it carries its own small VPK reader:
+
+```sh
+python3 scene-image.py /storage/emulated/0/srceng/left4dead
+```
+
 Exit code is 0 when the image is one this build would accept, 1 when it is not
 (a scene image from another version, a truncated entry table, zeros where the
 header should be), 2 when there is nothing to read.

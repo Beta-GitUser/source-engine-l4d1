@@ -2,6 +2,8 @@ import contextlib
 import io
 import json
 import struct
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -179,6 +181,43 @@ class CommandTests(unittest.TestCase):
         code, _, err = self._run(["scene", "/nonexistent/game"])
         self.assertEqual(code, 2)
         self.assertIn("no such file or directory", err)
+
+
+class StandaloneScriptTests(unittest.TestCase):
+    """scripts/scene-image.py has to work with nothing but a python3."""
+
+    SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "scene-image.py"
+
+    def _run(self, target):
+        return subprocess.run([sys.executable, str(self.SCRIPT), str(target)],
+                              capture_output=True, text=True)
+
+    def test_it_reads_the_image_out_of_a_pack_by_itself(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = Path(tmp) / "left4dead"
+            game.mkdir()
+            vpk.build_vpk_v1(game / "pak01_dir.vpk",
+                             {"scenes/scenes.image": build_image(),
+                              "materials/shadow.vmt": b"x"})
+            result = self._run(game)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("pak01_dir.vpk", result.stdout)
+            self.assertIn("id                VSIF", result.stdout)
+            self.assertIn("version           2", result.stdout)
+
+    def test_a_foreign_version_exits_nonzero_and_says_why(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "scenes.image"
+            image.write_bytes(build_image(version=1))
+            result = self._run(image)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("another version", result.stdout)
+
+    def test_it_declines_a_directory_without_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(tmp)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("no scenes/scenes.image", result.stderr)
 
 
 if __name__ == "__main__":
