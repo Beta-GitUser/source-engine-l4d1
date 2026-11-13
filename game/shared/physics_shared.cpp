@@ -573,19 +573,68 @@ static bool FindFileIgnoringCase( IFileSystem *pFileSystem, const char *pWanted,
 	return false;
 }
 
+//-----------------------------------------------------------------------------
+// Purpose: Read the manifest through the file system ourselves, so that the two
+// ways this can fail - cannot open, or opened but empty - are told apart in the
+// log. They have different fixes and the stock code reported both as one line.
+// KeyValues parsing is not one of the ways: LoadFromBuffer reports syntax problems
+// and still returns true.
+//-----------------------------------------------------------------------------
+static bool ReadManifest( IFileSystem *pFileSystem, const char *pFileName, KeyValues *pManifest )
+{
+	FileHandle_t hFile = pFileSystem->Open( pFileName, "rb", "GAME" );
+	if ( !hFile )
+	{
+		return false;
+	}
+
+	int nLen = pFileSystem->Size( hFile );
+	if ( nLen <= 0 )
+	{
+		Warning( "surfaceprops: '%s' opens but is %d bytes long\n", pFileName, nLen );
+		pFileSystem->Close( hFile );
+		return false;
+	}
+
+	char *pBuffer = new char[ nLen + 1 ];
+	int nRead = pFileSystem->ReadEx( pBuffer, nLen + 1, nLen, hFile );
+	pFileSystem->Close( hFile );
+
+	if ( nRead <= 0 )
+	{
+		Warning( "surfaceprops: '%s' is %d bytes but none of it could be read\n", pFileName, nLen );
+		delete[] pBuffer;
+		return false;
+	}
+
+	pBuffer[ nLen ] = 0;
+	bool bLoaded = pManifest->LoadFromBuffer( pFileName, pBuffer );
+	delete[] pBuffer;
+	return bLoaded;
+}
+
 void PhysParseSurfaceData( IPhysicsSurfaceProps *pProps, IFileSystem *pFileSystem )
 {
 	KeyValues *manifest = new KeyValues( SURFACEPROP_MANIFEST_FILE );
-	bool bManifestLoaded = manifest->LoadFromFile( pFileSystem, SURFACEPROP_MANIFEST_FILE, "GAME" );
+	bool bManifestLoaded = pFileSystem && ReadManifest( pFileSystem, SURFACEPROP_MANIFEST_FILE, manifest );
 
 	if ( !bManifestLoaded && pFileSystem )
 	{
+		// Not openable through GAME means either the content lacks it or the search
+		// path the engine is using does not reach it. Print that path: it is the
+		// difference between a missing file and a missing mount, and it is what the
+		// next reader of this log needs.
+		char szSearchPath[ 1024 ];
+		pFileSystem->GetSearchPath( "GAME", true, szSearchPath, sizeof( szSearchPath ) );
+		Warning( "surfaceprops: '%s' cannot be opened through the GAME search path:\n", SURFACEPROP_MANIFEST_FILE );
+		Warning( "surfaceprops:   %s\n", szSearchPath );
+
 		char szActual[ MAX_PATH ];
 		if ( FindFileIgnoringCase( pFileSystem, SURFACEPROP_MANIFEST_FILE, szActual, sizeof( szActual ) ) )
 		{
 			Warning( "surfaceprops: '%s' is stored as '%s'; loading it by that name\n",
 					 SURFACEPROP_MANIFEST_FILE, szActual );
-			bManifestLoaded = manifest->LoadFromFile( pFileSystem, szActual, "GAME" );
+			bManifestLoaded = ReadManifest( pFileSystem, szActual, manifest );
 		}
 	}
 
@@ -606,11 +655,10 @@ void PhysParseSurfaceData( IPhysicsSurfaceProps *pProps, IFileSystem *pFileSyste
 	}
 	else
 	{
-		// L4D1 predates the manifest: its content ships one surfaceproperties.txt and
-		// nothing that names it. Dying here would take the whole server down over
-		// content that is complete, so fall back to the pre-manifest list - the same
-		// files older Source builds hard-coded - and only complain if none of them is
-		// there either.
+		// The manifest could not be read. That is either content this install does not
+		// carry or a search path that does not reach it - not a reason to take the
+		// server down. Load the pre-manifest list (the files builds before the manifest
+		// hard-coded) so the surfaces are right either way, and say so.
 		static const char *s_pLegacySurfacePropFiles[] =
 		{
 			// L4D1's own surfaces; the _left4dead suffix is what its content uses.
