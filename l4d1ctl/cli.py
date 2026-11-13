@@ -499,6 +499,39 @@ def cmd_content(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_find(args: argparse.Namespace) -> int:
+    if args.root:
+        root = Path(args.root).expanduser()
+    else:
+        root = Path(resolve_gamedir()).parent
+    if not root.is_dir():
+        print(f"no such directory: {root}", file=sys.stderr)
+        return 2
+
+    hits = contentaudit.find(root, args.path)
+    if args.json:
+        print(json.dumps({"wanted": args.path, "root": str(root),
+                          "hits": [hit.to_dict() for hit in hits]}, indent=2))
+    else:
+        print(f"looking for: {args.path}")
+        print(f"under:       {root}")
+        print()
+        if not hits:
+            print("[absent]  not in any loose directory or pack here")
+            print()
+            print("The engine's lookups are case-sensitive on Android and inside VPKs,")
+            print("so a name that is only off by case is also a name it cannot find.")
+        for hit in hits:
+            mark = "[exact]" if hit.exact else "[case] "
+            print(f"{mark}  {hit.path}")
+            print(f"          in {hit.source}")
+            if not hit.exact:
+                print(f"          the engine asks for exactly '{args.path}'")
+    if not hits:
+        return 2
+    return 0 if any(hit.exact for hit in hits) else 1
+
+
 def cmd_scene(args: argparse.Namespace) -> int:
     target = Path(args.path).expanduser()
     try:
@@ -878,6 +911,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", help="game directory to scan (default: the resolved one)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_content)
+
+    p = sub.add_parser("find", help="where a content file is, and how it is spelled")
+    p.add_argument("path", help="path as the engine asks for it, e.g. scripts/foo.txt")
+    p.add_argument("--root", help="content root to search (default: the resolved one)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_find)
 
     p = sub.add_parser("scene", help="what a scenes/scenes.image actually contains")
     p.add_argument("path", help="a game directory, a *_dir.vpk, or the .image file")

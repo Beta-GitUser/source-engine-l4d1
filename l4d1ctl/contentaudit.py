@@ -110,6 +110,58 @@ def audit(root: Path, assets: Sequence[tuple] = BOOT_ASSETS) -> List[AssetFindin
     return findings
 
 
+@dataclass
+class Hit:
+    """One place a wanted path exists, with the spelling it has there."""
+
+    path: str
+    source: str          # "loose" or the archive file name
+    exact: bool          # same case as the caller asked for
+
+    def to_dict(self) -> dict:
+        return {"path": self.path, "source": self.source, "exact": self.exact}
+
+
+def find(root: Path, wanted: str) -> List[Hit]:
+    """Where does `wanted` exist under `root`, and is it spelled the same way?
+
+    The engine's lookups are case-sensitive once the content sits on a
+    case-sensitive filesystem and inside a VPK, while Valve's data was authored on
+    Windows where case did not matter. So "the file is there" and "the engine will
+    find the file" are different questions, and this answers both.
+    """
+    root = Path(root).expanduser()
+    normalized = wanted.replace("\\", "/").lstrip("/")
+    hits: List[Hit] = []
+    if not root.is_dir():
+        return hits
+
+    def consider(name: str, source: str) -> None:
+        if name.lower() == normalized.lower():
+            hits.append(Hit(path=name, source=source, exact=name == normalized))
+
+    for candidate in sorted(root.rglob("*")):
+        if not candidate.is_file():
+            continue
+        if candidate.suffix.lower() == ".vpk" and candidate.stem.endswith("_dir"):
+            continue
+        relative = candidate.relative_to(root).as_posix()
+        consider(relative, "loose")
+        _, separator, stripped = relative.partition("/")
+        if separator:
+            consider(stripped, "loose")
+
+    for directory_vpk in sorted(root.rglob("*_dir.vpk")):
+        try:
+            archive = vpk.VPK(directory_vpk)
+        except vpk.VPKError:
+            continue
+        for entry in archive:
+            consider(entry.path, directory_vpk.name)
+
+    return hits
+
+
 def summarise(findings: Sequence[AssetFinding]) -> dict:
     missing = [f.path for f in findings if not f.found]
     return {
@@ -120,4 +172,4 @@ def summarise(findings: Sequence[AssetFinding]) -> dict:
     }
 
 
-__all__ = ["BOOT_ASSETS", "AssetFinding", "audit", "summarise"]
+__all__ = ["BOOT_ASSETS", "AssetFinding", "Hit", "audit", "find", "summarise"]

@@ -88,6 +88,71 @@ class AuditTests(unittest.TestCase):
             self.assertTrue(description and cost, path)
 
 
+class FindTests(unittest.TestCase):
+    """`find` answers "is it there" and "is it spelled that way", which are
+    different questions once the content is on a case-sensitive filesystem."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.game = self.root / "left4dead"
+        self.game.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_exact_match_in_a_pack_is_exact(self):
+        vpk.build_vpk_v1(self.game / "pak01_dir.vpk",
+                         {"scripts/surfaceproperties_manifest.txt": b"x"})
+        hits = contentaudit.find(self.game, "scripts/surfaceproperties_manifest.txt")
+        self.assertEqual(len(hits), 1)
+        self.assertTrue(hits[0].exact)
+        self.assertEqual(hits[0].source, "pak01_dir.vpk")
+
+    def test_a_case_difference_is_reported_as_a_near_miss(self):
+        vpk.build_vpk_v1(self.game / "pak01_dir.vpk",
+                         {"scripts/SurfaceProperties_Manifest.txt": b"x"})
+        hits = contentaudit.find(self.game, "scripts/surfaceproperties_manifest.txt")
+        self.assertEqual(len(hits), 1)
+        self.assertFalse(hits[0].exact)
+        self.assertEqual(hits[0].path, "scripts/SurfaceProperties_Manifest.txt")
+
+    def test_loose_files_count_and_keep_their_spelling(self):
+        (self.game / "scripts").mkdir()
+        (self.game / "scripts" / "surfaceproperties_left4dead.txt").write_bytes(b"x")
+        hits = contentaudit.find(self.game, "scripts/surfaceproperties_left4dead.txt")
+        self.assertTrue(any(hit.exact and hit.source == "loose" for hit in hits))
+
+    def test_a_game_directory_under_a_root_is_searched(self):
+        (self.game / "scripts").mkdir()
+        (self.game / "scripts" / "surfaceproperties.txt").write_bytes(b"x")
+        hits = contentaudit.find(self.root, "scripts/surfaceproperties.txt")
+        self.assertTrue(hits, "the left4dead/ prefix should not hide the file")
+
+    def test_absent_is_an_empty_list_not_an_exception(self):
+        self.assertEqual(contentaudit.find(self.game, "scripts/nope.txt"), [])
+
+    def _find(self, wanted):
+        return subprocess.run(
+            [sys.executable, "-m", "l4d1ctl", "find", wanted, "--root", str(self.game)],
+            capture_output=True, text=True)
+
+    def test_the_command_exits_by_what_it_found(self):
+        vpk.build_vpk_v1(self.game / "pak01_dir.vpk",
+                         {"scripts/SurfaceProperties_Manifest.txt": b"x"})
+        result = self._find("scripts/surfaceproperties_manifest.txt")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("[case]", result.stdout)
+        self.assertEqual(self._find("scripts/missing.txt").returncode, 2)
+
+    def test_an_exact_match_exits_zero(self):
+        vpk.build_vpk_v1(self.game / "pak01_dir.vpk",
+                         {"scripts/surfaceproperties_manifest.txt": b"x"})
+        result = self._find("scripts/surfaceproperties_manifest.txt")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("[exact]", result.stdout)
+
+
 class CommandTests(unittest.TestCase):
     def test_json_output_is_parseable(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -100,6 +100,32 @@ The verdict distinguishes the failures that look identical in the engine log:
 * **zeros, gzip, or LZMA** — not a scene image at all, so suspect the pack read
   rather than the format.
 
+## Is the file there, and is it spelled the way the engine asks?
+
+`l4d1ctl find` answers both, without the engine: it searches the loose files and
+every `*_dir.vpk` under a content root for a path, and reports the spelling it
+found. Case matters once the content is on Android and inside a VPK; Valve's data
+was authored on Windows, where it never did.
+
+```sh
+python3 -m l4d1ctl find scripts/surfaceproperties_manifest.txt
+python3 -m l4d1ctl find scripts/surfaceproperties_left4dead.txt --root /storage/emulated/0/srceng
+```
+
+```
+looking for: scripts/surfaceproperties_manifest.txt
+under:       /storage/emulated/0/srceng
+
+[exact]  scripts/surfaceproperties_manifest.txt
+          in pak01_dir.vpk
+```
+
+`[exact]` exits 0, a `[case]` near miss exits 1, nothing at all exits 2. The
+engine now does the same thing for the surface property manifest: if the name as
+written does not load, it looks for it again with case folded away, logs the
+spelling it found, and loads that. A manifest naming a file the content does not
+carry is a warning, not a fatal error.
+
 ## When it stops: the `##### stack` block
 
 A fatal `Error()` ends in `Sys_Error`, and Breakpad takes the `SIGTRAP` it raises:

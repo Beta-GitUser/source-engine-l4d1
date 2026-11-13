@@ -530,14 +530,66 @@ void AddSurfacepropFile( const char *pFileName, IPhysicsSurfaceProps *pProps, IF
 	}
 	else
 	{
-		Error( "Unable to load surface prop file '%s' (referenced by manifest file '%s')\n", pFileName, SURFACEPROP_MANIFEST_FILE );
+		// A manifest naming a file this content does not carry is a completeness
+		// question, not a reason to take the process down: the surfaces it describes
+		// fall back to the defaults below.
+		Warning( "surfaceprops: manifest '%s' names '%s', which is not in the content\n",
+				 SURFACEPROP_MANIFEST_FILE, pFileName );
 	}
+}
+
+//-----------------------------------------------------------------------------
+// Windows did not care about case; Android and VPK lookups do, and Valve's data was
+// authored on Windows. Look the name up again with case folded away before deciding
+// a file the content ships is absent.
+//-----------------------------------------------------------------------------
+static bool FindFileIgnoringCase( IFileSystem *pFileSystem, const char *pWanted,
+								  char *pFound, int nFoundLen )
+{
+	char szDir[ MAX_PATH ];
+	V_strncpy( szDir, pWanted, sizeof( szDir ) );
+	V_StripFilename( szDir );
+	const char *pLeaf = V_UnqualifiedFileName( pWanted );
+
+	char szPattern[ MAX_PATH ];
+	V_snprintf( szPattern, sizeof( szPattern ), "%s/*", szDir[0] ? szDir : "." );
+
+	FileFindHandle_t hFind = NULL;
+	const char *pName = pFileSystem->FindFirst( szPattern, &hFind );
+	while ( pName )
+	{
+		if ( !V_stricmp( pName, pLeaf ) )
+		{
+			V_snprintf( pFound, nFoundLen, "%s/%s", szDir, pName );
+			pFileSystem->FindClose( hFind );
+			return true;
+		}
+		pName = pFileSystem->FindNext( hFind );
+	}
+	if ( hFind )
+	{
+		pFileSystem->FindClose( hFind );
+	}
+	return false;
 }
 
 void PhysParseSurfaceData( IPhysicsSurfaceProps *pProps, IFileSystem *pFileSystem )
 {
 	KeyValues *manifest = new KeyValues( SURFACEPROP_MANIFEST_FILE );
-	if ( manifest->LoadFromFile( pFileSystem, SURFACEPROP_MANIFEST_FILE, "GAME" ) )
+	bool bManifestLoaded = manifest->LoadFromFile( pFileSystem, SURFACEPROP_MANIFEST_FILE, "GAME" );
+
+	if ( !bManifestLoaded && pFileSystem )
+	{
+		char szActual[ MAX_PATH ];
+		if ( FindFileIgnoringCase( pFileSystem, SURFACEPROP_MANIFEST_FILE, szActual, sizeof( szActual ) ) )
+		{
+			Warning( "surfaceprops: '%s' is stored as '%s'; loading it by that name\n",
+					 SURFACEPROP_MANIFEST_FILE, szActual );
+			bManifestLoaded = manifest->LoadFromFile( pFileSystem, szActual, "GAME" );
+		}
+	}
+
+	if ( bManifestLoaded )
 	{
 		for ( KeyValues *sub = manifest->GetFirstSubKey(); sub != NULL; sub = sub->GetNextKey() )
 		{
@@ -561,6 +613,8 @@ void PhysParseSurfaceData( IPhysicsSurfaceProps *pProps, IFileSystem *pFileSyste
 		// there either.
 		static const char *s_pLegacySurfacePropFiles[] =
 		{
+			// L4D1's own surfaces; the _left4dead suffix is what its content uses.
+			"scripts/surfaceproperties_left4dead.txt",
 			"scripts/surfaceproperties.txt",
 			"scripts/surfaceproperties_ep2.txt",
 		};
