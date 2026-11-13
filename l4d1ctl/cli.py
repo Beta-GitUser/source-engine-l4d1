@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 from . import (depot, doctor, gameinfo, gamemod, launch, mine, mods, preflight,
-               contentaudit, selftest, steamid, steamlib, vpk)
+               contentaudit, sceneimage, selftest, steamid, steamlib, vpk)
 from .paths import PortPaths, resolve_gamedir
 
 
@@ -499,6 +499,28 @@ def cmd_content(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_scene(args: argparse.Namespace) -> int:
+    target = Path(args.path).expanduser()
+    try:
+        source = sceneimage.locate(target)
+    except (sceneimage.SceneImageError, vpk.VPKError) as error:
+        print(str(error), file=sys.stderr)
+        return 2
+
+    report = sceneimage.parse(source)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(sceneimage.render(report, dump=args.dump))
+
+    if args.write:
+        destination = Path(args.write).expanduser()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(source.data)
+        print(f"\nwrote {len(source.data)} bytes to {destination}", file=sys.stderr)
+    return 0 if report.ok else 1
+
+
 def cmd_vpk(args: argparse.Namespace) -> int:
     target = Path(args.path).expanduser()
     if not target.exists():
@@ -856,6 +878,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", help="game directory to scan (default: the resolved one)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_content)
+
+    p = sub.add_parser("scene", help="what a scenes/scenes.image actually contains")
+    p.add_argument("path", help="a game directory, a *_dir.vpk, or the .image file")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--dump", type=int, default=64, help="bytes of hexdump to show")
+    p.add_argument("--write", metavar="FILE", help="save the extracted bytes here")
+    p.set_defaults(func=cmd_scene)
 
     p = sub.add_parser("vpk", help="inspect mod VPK packs")
     p.add_argument("action", choices=("info", "list", "check", "extract"))

@@ -58,6 +58,35 @@ search paths — the same place the fallback already used — so those calls res
 instead of warning. If the warnings persist, the `libfilesystem_stdio.so` on the
 device predates that change; the gameinfo is not the thing to edit.
 
+## Is `scenes/scenes.image` even a scene image?
+
+The engine's complaint names the file and nothing else, so the file itself has to
+answer. `l4d1ctl scene` reads it straight out of the pack and prints what is
+actually in the header: the four-byte id, the version, how many scenes and strings
+it claims, whether those claims fit inside the bytes on disk, and the first
+entries and strings. It takes a game directory, a `*_dir.vpk`, or an extracted
+file, and prefers a loose copy over the pack exactly as the engine does.
+
+```sh
+python3 -m l4d1ctl scene /storage/emulated/0/srceng/left4dead
+python3 -m l4d1ctl scene /storage/emulated/0/srceng/left4dead/pak01_dir.vpk --json
+python3 -m l4d1ctl scene ~/scenes.image --write /tmp/copy.image
+```
+
+Exit code is 0 when the image is one this build would accept, 1 when it is not
+(a scene image from another version, a truncated entry table, zeros where the
+header should be), 2 when there is nothing to read.
+
+This build wants id `VSIF` (on disk: the bytes `FISV`) and version `2`. The
+verdict distinguishes the three failures that look identical in the engine log:
+
+* **an older or newer version** — the file is a scene image, the engine's check is
+  just stricter than the content;
+* **a header that does not hold together** — the entry table or an entry points
+  past the end of the file, i.e. the copy in the pack is truncated;
+* **zeros, gzip, or LZMA** — not a scene image at all, so suspect the pack read
+  rather than the format.
+
 ## When it stops: the `##### stack` block
 
 A fatal `Error()` ends in `Sys_Error`, and Breakpad takes the `SIGTRAP` it raises:
