@@ -31,7 +31,8 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 from . import (depot, doctor, gameinfo, gamemod, launch, mine, mods, preflight,
-               contentaudit, sceneimage, selftest, steamid, steamlib, vpk)
+               contentaudit, sceneimage, selftest, steamid, steamlib,
+               surfaceprops, vpk)
 from .paths import PortPaths, resolve_gamedir
 
 
@@ -499,6 +500,23 @@ def cmd_content(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_surface(args: argparse.Namespace) -> int:
+    if args.root:
+        root = Path(args.root).expanduser()
+    else:
+        root = Path(resolve_gamedir()).parent
+    if not root.is_dir():
+        print(f"no such directory: {root}", file=sys.stderr)
+        return 2
+
+    report = surfaceprops.audit(root, max_surfaces=args.surfaces)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(surfaceprops.render(report))
+    return report.exit_code()
+
+
 def cmd_find(args: argparse.Namespace) -> int:
     if args.root:
         root = Path(args.root).expanduser()
@@ -921,6 +939,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", help="game directory to scan (default: the resolved one)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_content)
+
+    p = sub.add_parser("surface",
+                       help="the surface property manifest and the files it names")
+    p.add_argument("--root", help="content root to inspect (default: the resolved one)")
+    p.add_argument("--surfaces", type=int, default=12, metavar="N",
+                   help="how many surface names to list per file (default 12, 0 for all)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_surface)
 
     p = sub.add_parser("find", help="where a content file is, and how it is spelled")
     p.add_argument("path", help="path as the engine asks for it, e.g. scripts/foo.txt")

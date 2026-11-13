@@ -117,9 +117,16 @@ class Hit:
     path: str
     source: str          # "loose" or the archive file name
     exact: bool          # same case as the caller asked for
+    size: int = 0
+    container: Optional[Path] = None    # the pack it came from, if any
+
+    @property
+    def in_pack(self) -> bool:
+        return self.container is not None
 
     def to_dict(self) -> dict:
-        return {"path": self.path, "source": self.source, "exact": self.exact}
+        return {"path": self.path, "source": self.source, "exact": self.exact,
+                "size": self.size, "in_pack": self.in_pack}
 
 
 def find(root: Path, wanted: str) -> List[Hit]:
@@ -136,9 +143,11 @@ def find(root: Path, wanted: str) -> List[Hit]:
     if not root.is_dir():
         return hits
 
-    def consider(name: str, source: str) -> None:
+    def consider(name: str, source: str, size: int = 0,
+                 container: Optional[Path] = None) -> None:
         if name.lower() == normalized.lower():
-            hits.append(Hit(path=name, source=source, exact=name == normalized))
+            hits.append(Hit(path=name, source=source, exact=name == normalized,
+                            size=size, container=container))
 
     for candidate in sorted(root.rglob("*")):
         if not candidate.is_file():
@@ -146,10 +155,11 @@ def find(root: Path, wanted: str) -> List[Hit]:
         if candidate.suffix.lower() == ".vpk" and candidate.stem.endswith("_dir"):
             continue
         relative = candidate.relative_to(root).as_posix()
-        consider(relative, "loose")
+        size = candidate.stat().st_size
+        consider(relative, "loose", size)
         _, separator, stripped = relative.partition("/")
         if separator:
-            consider(stripped, "loose")
+            consider(stripped, "loose", size)
 
     for directory_vpk in sorted(root.rglob("*_dir.vpk")):
         try:
@@ -157,7 +167,7 @@ def find(root: Path, wanted: str) -> List[Hit]:
         except vpk.VPKError:
             continue
         for entry in archive:
-            consider(entry.path, directory_vpk.name)
+            consider(entry.path, directory_vpk.name, entry.size, directory_vpk)
 
     return hits
 
@@ -166,12 +176,18 @@ def read_hit(root: Path, hit: "Hit") -> bytes:
     """The bytes behind a Hit, so the file can be looked at, not just located."""
     root = Path(root).expanduser()
     if hit.source == "loose":
-        for candidate in (root / hit.path, root / hit.path.split("/", 1)[-1]):
+        # The recorded path may be relative to the root or to a game directory
+        # under it (left4dead/scripts/... versus scripts/...), so try both.
+        trimmed = hit.path.split("/", 1)[-1]
+        candidates = [root / hit.path, root / trimmed]
+        for child in sorted(path for path in root.iterdir() if path.is_dir()):
+            candidates.extend([child / hit.path, child / trimmed])
+        for candidate in candidates:
             if candidate.is_file():
                 return candidate.read_bytes()
         raise FileNotFoundError(hit.path)
 
-    archive = vpk.VPK(root / hit.source)
+    archive = vpk.VPK(hit.container or (root / hit.source))
     return archive.read(hit.path)
 
 

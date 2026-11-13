@@ -100,6 +100,54 @@ The verdict distinguishes the failures that look identical in the engine log:
 * **zeros, gzip, or LZMA** — not a scene image at all, so suspect the pack read
   rather than the format.
 
+## Is the surface property manifest there, and does the chain behind it work?
+
+`l4d1ctl surface` answers the three questions separately, because they fail
+separately: is the file in the content at all, would the engine's reader get
+anything out of it, and does each file it names exist and parse.
+
+```sh
+python3 -m l4d1ctl surface /storage/emulated/0/srceng        # or --root, --json
+```
+
+```
+content root: /storage/emulated/0/srceng
+
+manifest:  scripts/surfaceproperties_manifest.txt
+           pak01_dir.vpk, 551 bytes, exact spelling
+
+as loaded: openable, non-empty, 551 bytes
+           root name 'surfaceproperties_manifest' (the engine never compares it)
+
+it names 1 file(s):
+  [  ok  ]  scripts/surfaceproperties_left4dead.txt
+            pak01_dir.vpk, 31817 bytes
+            44 surfaces: default, solidmetal, wood, ...
+
+verdict: the manifest is there and the chain behind it resolves (44 surfaces)
+```
+
+With no repository on the device, `scripts/surface-manifest.py` does the same thing
+with nothing but `python3`, carrying its own VPK reader:
+
+```sh
+python3 pyscripts/surface-manifest.py /storage/emulated/0/srceng
+```
+
+Exit code 0 when the chain resolves, 1 when the manifest exists but something
+behind it is missing or broken, 2 when there is no manifest in the content.
+
+The report separates the failures that the engine log renders as one line each:
+
+| what it prints | what it means |
+| --- | --- |
+| `not in any loose directory or *_dir.vpk` | the content has no manifest; it lists the `scripts/surfaceproperties*` files that *are* there, and which fallback this branch will load |
+| `0 bytes` | it exists and the engine cannot read it — the second and last way `LoadFromFile` fails |
+| `missing {` | a bare list of names instead of `NAME { … }`: loads, contributes nothing |
+| `subkeys not named 'file'` | the loop warns `bogus file type` and skips that entry |
+| `[absent]` under a named file | the manifest points at a file this content does not carry |
+| `spelled …` on a loose file | only the case-folded second look finds it; inside a pack, case never matters |
+
 ## `Unable to load manifest file` has exactly two causes
 
 The loader is `KeyValues::LoadFromFile` (`tier1/KeyValues.cpp`). It returns false in
