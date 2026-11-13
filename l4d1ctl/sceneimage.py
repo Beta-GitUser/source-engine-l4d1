@@ -176,6 +176,7 @@ def validate(image: bytes, num_scenes: int, num_strings: int, entry_offset: int,
         "entries_inside_file": 0,
         "summaries_inside_file": 0,
         "sound_indices_valid": 0,
+        "unterminated_strings": 0,
         "msecs": [None, None],
         "num_sounds": [None, None],
         "samples": [],
@@ -186,6 +187,16 @@ def validate(image: bytes, num_scenes: int, num_strings: int, entry_offset: int,
     if num_scenes <= 0 or num_scenes > limit:
         result["problems"].append(f"{num_scenes} scenes is not a number this reads")
         return result
+
+    # Every string has to be NUL-terminated inside the file: GetSceneString() hands the
+    # pointer to callers that read it as a C string.
+    for index in range(num_strings):
+        offset = struct.unpack_from("<I", image, HEADER_SIZE + 4 * index)[0]
+        if offset >= len(image) or b"\0" not in image[offset:]:
+            result["unterminated_strings"] += 1
+            if len(result["problems"]) < 6:
+                result["problems"].append(
+                    f"string {index} at {offset} is not terminated inside the file")
 
     checked = 0
     for index in range(num_scenes):
@@ -332,10 +343,13 @@ def parse(source: Source) -> Report:
                 f"only {report.layout['entries_checked']} of {n_scenes} entries are inside "
                 "the file")
 
+    # Sound ids outside the string pool are advisory: the engine's accessors
+    # bound-check them and return NULL, so those scenes simply play without sound.
+    # Only a structural overlap - offsets that leave the file - is disqualifying.
     layout_sound = bool(report.layout) and report.layout["complete"] and \
         report.layout["entries_inside_file"] == report.layout["entries_checked"] and \
         report.layout["summaries_inside_file"] == report.layout["entries_checked"] and \
-        report.layout["sound_indices_valid"] == report.layout["entries_checked"]
+        report.layout["unterminated_strings"] == 0
 
     id_ok = file_id in (SCENE_IMAGE_FILE_BYTES, b"FISV")
     version_ok = n_version in SCENE_IMAGE_VERSIONS
@@ -350,7 +364,8 @@ def parse(source: Source) -> Report:
         report.verdict = (
             f"A version {n_version} scene image whose layout is the version 2 one: all "
             f"{report.layout['entries_checked']} entries and their summaries lie inside the "
-            f"file, every sound index points into {n_strings} strings, msecs "
+            f"file, {report.layout['sound_indices_valid']} of them with sound ids inside "
+            f"{n_strings} strings, msecs "
             f"{report.layout['msecs'][0]}..{report.layout['msecs'][1]}, "
             f"{report.layout['num_sounds'][0]}..{report.layout['num_sounds'][1]} sounds per "
             "scene. The stock check in this tree only accepts version "
@@ -430,8 +445,12 @@ def render(report: Report, *, dump: int = 64) -> str:
                      f"{layout['entries_inside_file']}/{layout['entries_checked']}")
         lines.append(f"  summaries inside the file   "
                      f"{layout['summaries_inside_file']}/{layout['entries_checked']}")
-        lines.append(f"  sound indices in the pool   "
-                     f"{layout['sound_indices_valid']}/{layout['entries_checked']}")
+        if layout["unterminated_strings"]:
+            lines.append(f"  unterminated strings        {layout['unterminated_strings']}")
+        lines.append(f"  sound ids in the pool       "
+                     f"{layout['sound_indices_valid']}/{layout['entries_checked']}"
+                     + ("" if layout["sound_indices_valid"] == layout["entries_checked"]
+                        else "   (advisory: those scenes play without sound)"))
         if layout["msecs"][0] is not None:
             lines.append(f"  msecs range                 "
                          f"{layout['msecs'][0]}..{layout['msecs'][1]}")

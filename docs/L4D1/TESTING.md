@@ -132,7 +132,23 @@ Two startup failures that used to be fatal are not any more:
   cache that makes scene playback cheaper; every caller already copes with "not
   in the image". A different id or version is now a warning that prints what the
   file's header actually says, and the engine loads scenes individually.
+* **`scripts/surfaceproperties_manifest.txt` missing** — L4D1 predates the
+  manifest. The game code falls back to the pre-manifest files
+  (`scripts/surfaceproperties.txt`, `_ep2`), and only warns if none of them exist.
+  Before that fallback, a complete L4D1 install died here with
+  `Unable to load manifest file` and a `##### stack` under it.
 * **A scene image too short to hold a header** — same treatment, same reason.
+
+When a version 3 image is *rejected*, the log now says which check failed:
+
+```
+CSceneFileCache: scenes/scenes.image is version 3, but its layout does not check
+out: entry 4211 has data 900224+118 outside 1400655 bytes
+```
+
+Only structural overlaps reject an image — offsets leaving the file, an
+unterminated string. A sound id outside the string pool is reported as advisory
+and costs those scenes their sound, nothing more.
 
 ## Reading the boot log: what was mounted
 

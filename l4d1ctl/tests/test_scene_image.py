@@ -82,12 +82,14 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(report.layout["sound_indices_valid"], 1)
         self.assertIn("this port accepts 3 and reads it as 2", report.verdict)
 
-    def test_a_sound_index_outside_the_pool_breaks_the_layout(self):
+    def test_a_sound_index_outside_the_pool_is_advisory(self):
+        """The engine's accessors bound-check sound ids and return NULL, so a bad id
+        costs a scene its sound, not the whole image."""
         report = sceneimage.parse(sceneimage.Source(
             label="memory", data=build_image(version=3, sound_index=99)))
-        self.assertFalse(report.ok)
-        self.assertTrue(any("sound index" in p for p in report.layout["problems"]),
-                        report.layout["problems"])
+        self.assertTrue(report.ok, report.problems)
+        self.assertEqual(report.layout["sound_indices_valid"], 0)
+        self.assertIn("advisory", sceneimage.render(report))
 
     def test_a_short_file_says_so(self):
         report = sceneimage.parse(sceneimage.Source(label="memory", data=b"FISV\x02\x00"))

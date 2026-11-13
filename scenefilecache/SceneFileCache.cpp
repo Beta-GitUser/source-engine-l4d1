@@ -31,15 +31,30 @@ bool IsBufferBinaryVCD( char *pBuffer, int bufferSize )
 //-----------------------------------------------------------------------------
 // A scene image from a version this tree was not written for is worth reading if
 // the bytes agree with the layout we know. L4D1 ships version 3 and its header,
-// entry table and summaries are the version 2 structs - checked on device: 5877
-// entries, every data range, summary and sound index inside the file. Verify that
-// on the bytes in hand rather than trusting the version number, and read
-// everything with memcpy so an unaligned offset cannot fault on aarch64.
+// entry table and summaries are the version 2 structs.
+//
+// Only the things that could make us read out of bounds are treated as fatal: the
+// entry table inside the file, every entry's data range inside the file, every
+// summary and its sound array inside the file, every string NUL-terminated inside
+// the file. A sound index pointing outside the string pool is *not* fatal - the
+// accessors bound-check it and return NULL - so it is counted and reported.
+//
+// Everything is read with memcpy: the offsets come from a file, so they are not
+// guaranteed to be aligned, and an unaligned int load can fault on aarch64.
 //-----------------------------------------------------------------------------
-static bool SceneImageLayoutIsSane( const void *pRawData, int nBytes, const SceneImageHeader_t *pHeader )
+static bool SceneImageLayoutIsSane( const void *pRawData, int nBytes, const SceneImageHeader_t *pHeader,
+									char *pReason, int nReasonLen, int *pOutOfRangeSounds )
 {
+	if ( pReason && nReasonLen > 0 )
+		pReason[0] = 0;
+	if ( pOutOfRangeSounds )
+		*pOutOfRangeSounds = 0;
+
 	if ( !pRawData || nBytes < (int)sizeof( SceneImageHeader_t ) )
+	{
+		V_snprintf( pReason, nReasonLen, "%d bytes cannot hold a header", nBytes );
 		return false;
+	}
 
 	const byte *pData = (const byte *)pRawData;
 	const int nScenes = pHeader->nNumScenes;
@@ -47,23 +62,53 @@ static bool SceneImageLayoutIsSane( const void *pRawData, int nBytes, const Scen
 	const int nEntryOffset = pHeader->nSceneEntryOffset;
 
 	if ( nScenes <= 0 || nScenes > 200000 )
+	{
+		V_snprintf( pReason, nReasonLen, "nNumScenes is %d", nScenes );
 		return false;
+	}
 	if ( nStrings < 0 || nStrings > 1000000 )
+	{
+		V_snprintf( pReason, nReasonLen, "nNumStrings is %d", nStrings );
 		return false;
+	}
 	if ( (long long)sizeof( SceneImageHeader_t ) + 4LL * nStrings > nBytes )
+	{
+		V_snprintf( pReason, nReasonLen, "the %d-entry string table does not fit in %d bytes",
+					nStrings, nBytes );
 		return false;
+	}
 	if ( nEntryOffset < (int)sizeof( SceneImageHeader_t ) )
+	{
+		V_snprintf( pReason, nReasonLen, "nSceneEntryOffset %d points inside the header",
+					nEntryOffset );
 		return false;
+	}
 	if ( (long long)nEntryOffset + (long long)nScenes * (long long)sizeof( SceneImageEntry_t ) > nBytes )
+	{
+		V_snprintf( pReason, nReasonLen,
+					"the %d-entry table ends at %lld, past the %d bytes present",
+					nScenes, (long long)nEntryOffset + (long long)nScenes * (long long)sizeof( SceneImageEntry_t ), nBytes );
 		return false;
+	}
 
-	// The string table is offsets from the header; every one has to point inside.
+	// The string table holds offsets from the header; each string has to be
+	// terminated before the end of the file, because GetSceneString() hands the
+	// pointer to callers that read it as a C string.
 	for ( int i = 0; i < nStrings; i++ )
 	{
 		unsigned int nOffset = 0;
 		V_memcpy( &nOffset, pData + sizeof( SceneImageHeader_t ) + 4 * i, sizeof( nOffset ) );
 		if ( nOffset >= (unsigned int)nBytes )
+		{
+			V_snprintf( pReason, nReasonLen, "string %d points at %u, past %d bytes",
+						i, nOffset, nBytes );
 			return false;
+		}
+		if ( !memchr( pData + nOffset, 0, nBytes - (int)nOffset ) )
+		{
+			V_snprintf( pReason, nReasonLen, "string %d at %u is not terminated", i, nOffset );
+			return false;
+		}
 	}
 
 	const int nEntriesEnd = nEntryOffset + nScenes * (int)sizeof( SceneImageEntry_t );
@@ -74,25 +119,42 @@ static bool SceneImageLayoutIsSane( const void *pRawData, int nBytes, const Scen
 
 		if ( entry.nDataOffset < 0 || entry.nDataLength < 0 ||
 			 (long long)entry.nDataOffset + (long long)entry.nDataLength > nBytes )
+		{
+			V_snprintf( pReason, nReasonLen, "entry %d has data %d+%d outside %d bytes",
+						i, entry.nDataOffset, entry.nDataLength, nBytes );
 			return false;
+		}
 
 		if ( entry.nSceneSummaryOffset < nEntriesEnd ||
 			 (long long)entry.nSceneSummaryOffset + 8 > nBytes )
+		{
+			V_snprintf( pReason, nReasonLen, "entry %d has its summary at %d, outside [%d, %d)",
+						i, entry.nSceneSummaryOffset, nEntriesEnd, nBytes );
 			return false;
+		}
 
 		int nNumSounds = 0;
 		V_memcpy( &nNumSounds, pData + entry.nSceneSummaryOffset + 4, sizeof( nNumSounds ) );
 		if ( nNumSounds < 0 || nNumSounds > 4096 )
+		{
+			V_snprintf( pReason, nReasonLen, "entry %d claims %d sounds", i, nNumSounds );
 			return false;
+		}
 		if ( (long long)entry.nSceneSummaryOffset + 8 + 4LL * nNumSounds > nBytes )
+		{
+			V_snprintf( pReason, nReasonLen, "entry %d: %d sound ids do not fit after %d",
+						i, nNumSounds, entry.nSceneSummaryOffset );
 			return false;
+		}
 
 		for ( int s = 0; s < nNumSounds; s++ )
 		{
 			int nSound = 0;
 			V_memcpy( &nSound, pData + entry.nSceneSummaryOffset + 8 + 4 * s, sizeof( nSound ) );
-			if ( nSound < 0 || nSound >= nStrings )
-				return false;
+			if ( ( nSound < 0 || nSound >= nStrings ) && pOutOfRangeSounds )
+			{
+				(*pOutOfRangeSounds)++;
+			}
 		}
 	}
 
@@ -168,14 +230,28 @@ InitReturnVal_t CSceneFileCache::Init()
 			{
 				SceneImageHeader_t *pHeader = (SceneImageHeader_t *)m_SceneImageFile.Base();
 				bool bReadableVersion = pHeader->nVersion == SCENE_IMAGE_VERSION;
+				char szReason[256] = { 0 };
+				int nOutOfRangeSounds = 0;
 				if ( !bReadableVersion && pHeader->nVersion == SCENE_IMAGE_VERSION_L4D1 &&
-					 SceneImageLayoutIsSane( m_SceneImageFile.Base(), nRead, pHeader ) )
+					 SceneImageLayoutIsSane( m_SceneImageFile.Base(), nRead, pHeader,
+											 szReason, sizeof( szReason ), &nOutOfRangeSounds ) )
 				{
 					// Reading a v3 image as v2 is the whole port: the structs are the same.
 					Warning( "CSceneFileCache: %s is version %d, reading it as version %d "
 							 "(layout checked entry by entry).\n", pSceneImageName,
 							 pHeader->nVersion, SCENE_IMAGE_VERSION );
+					if ( nOutOfRangeSounds > 0 )
+					{
+						Warning( "CSceneFileCache: %d sound ids point outside the %d-string pool; "
+								 "those scenes will play without sound.\n",
+								 nOutOfRangeSounds, pHeader->nNumStrings );
+					}
 					bReadableVersion = true;
+				}
+				else if ( pHeader->nVersion == SCENE_IMAGE_VERSION_L4D1 )
+				{
+					Warning( "CSceneFileCache: %s is version %d, but its layout does not check "
+							 "out: %s\n", pSceneImageName, pHeader->nVersion, szReason );
 				}
 				if ( pHeader->nId != SCENE_IMAGE_ID || !bReadableVersion )
 				{

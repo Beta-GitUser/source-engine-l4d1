@@ -554,7 +554,35 @@ void PhysParseSurfaceData( IPhysicsSurfaceProps *pProps, IFileSystem *pFileSyste
 	}
 	else
 	{
-		Error( "Unable to load manifest file '%s'\n", SURFACEPROP_MANIFEST_FILE );
+		// L4D1 predates the manifest: its content ships one surfaceproperties.txt and
+		// nothing that names it. Dying here would take the whole server down over
+		// content that is complete, so fall back to the pre-manifest list - the same
+		// files older Source builds hard-coded - and only complain if none of them is
+		// there either.
+		static const char *s_pLegacySurfacePropFiles[] =
+		{
+			"scripts/surfaceproperties.txt",
+			"scripts/surfaceproperties_ep2.txt",
+		};
+
+		int nLoaded = 0;
+		for ( int i = 0; i < (int)( sizeof( s_pLegacySurfacePropFiles ) / sizeof( s_pLegacySurfacePropFiles[0] ) ); i++ )
+		{
+			if ( pFileSystem && pFileSystem->FileExists( s_pLegacySurfacePropFiles[ i ] ) )
+			{
+				Warning( "surfaceprops: no '%s', loading '%s' instead\n",
+						 SURFACEPROP_MANIFEST_FILE, s_pLegacySurfacePropFiles[ i ] );
+				AddSurfacepropFile( s_pLegacySurfacePropFiles[ i ], pProps, pFileSystem );
+				nLoaded++;
+			}
+		}
+
+		if ( nLoaded == 0 )
+		{
+			Warning( "surfaceprops: neither '%s' nor the pre-manifest '%s' is in the content; "
+					 "physics surfaces fall back to the defaults compiled into the engine\n",
+					 SURFACEPROP_MANIFEST_FILE, s_pLegacySurfacePropFiles[ 0 ] );
+		}
 	}
 
 	manifest->deleteThis();
