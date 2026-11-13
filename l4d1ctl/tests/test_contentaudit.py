@@ -145,6 +145,29 @@ class FindTests(unittest.TestCase):
         self.assertIn("[case]", result.stdout)
         self.assertEqual(self._find("scripts/missing.txt").returncode, 2)
 
+    def test_cat_prints_what_is_in_the_file(self):
+        manifest = b'surfaceproperties_manifest\n{\n\t"file"\t"scripts/surfaceproperties_left4dead.txt"\n}\n'
+        vpk.build_vpk_v1(self.game / "pak01_dir.vpk",
+                         {"scripts/surfaceproperties_manifest.txt": manifest})
+        result = subprocess.run(
+            [sys.executable, "-m", "l4d1ctl", "find",
+             "scripts/surfaceproperties_manifest.txt", "--root", str(self.game), "--cat", "4"],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("surfaceproperties_manifest", result.stdout)
+        self.assertIn("surfaceproperties_left4dead.txt", result.stdout)
+
+    def test_read_hit_reads_from_a_pack_and_from_disk(self):
+        vpk.build_vpk_v1(self.game / "pak01_dir.vpk", {"scripts/a.txt": b"pack"})
+        hits = contentaudit.find(self.game, "scripts/a.txt")
+        self.assertEqual(contentaudit.read_hit(self.game, hits[0]), b"pack")
+
+        (self.game / "scripts").mkdir()
+        (self.game / "scripts" / "b.txt").write_bytes(b"disk")
+        hits = contentaudit.find(self.game, "scripts/b.txt")
+        loose = [hit for hit in hits if hit.source == "loose"][0]
+        self.assertEqual(contentaudit.read_hit(self.game, loose), b"disk")
+
     def test_an_exact_match_exits_zero(self):
         vpk.build_vpk_v1(self.game / "pak01_dir.vpk",
                          {"scripts/surfaceproperties_manifest.txt": b"x"})

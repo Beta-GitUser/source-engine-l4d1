@@ -120,6 +120,9 @@ under:       /storage/emulated/0/srceng
           in pak01_dir.vpk
 ```
 
+`--cat N` prints the first N lines of whatever it found, which is the difference
+between "the file is there" and "the file is there and parses".
+
 `[exact]` exits 0, a `[case]` near miss exits 1, nothing at all exits 2. The
 engine now does the same thing for the surface property manifest: if the name as
 written does not load, it looks for it again with case folded away, logs the

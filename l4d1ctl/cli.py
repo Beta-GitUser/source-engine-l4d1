@@ -527,6 +527,16 @@ def cmd_find(args: argparse.Namespace) -> int:
             print(f"          in {hit.source}")
             if not hit.exact:
                 print(f"          the engine asks for exactly '{args.path}'")
+            if args.cat:
+                try:
+                    data = contentaudit.read_hit(root, hit)
+                except (OSError, vpk.VPKError) as error:
+                    print(f"          cannot read it: {error}")
+                    continue
+                print(f"          {len(data)} bytes, first {args.cat} lines:")
+                text = data.decode("utf-8", "replace")
+                for line in text.splitlines()[:args.cat]:
+                    print(f"          | {line}")
     if not hits:
         return 2
     return 0 if any(hit.exact for hit in hits) else 1
@@ -916,6 +926,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("path", help="path as the engine asks for it, e.g. scripts/foo.txt")
     p.add_argument("--root", help="content root to search (default: the resolved one)")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--cat", type=int, default=0, metavar="LINES",
+                   help="also print the first LINES lines of what was found")
     p.set_defaults(func=cmd_find)
 
     p = sub.add_parser("scene", help="what a scenes/scenes.image actually contains")

@@ -162,6 +162,19 @@ def find(root: Path, wanted: str) -> List[Hit]:
     return hits
 
 
+def read_hit(root: Path, hit: "Hit") -> bytes:
+    """The bytes behind a Hit, so the file can be looked at, not just located."""
+    root = Path(root).expanduser()
+    if hit.source == "loose":
+        for candidate in (root / hit.path, root / hit.path.split("/", 1)[-1]):
+            if candidate.is_file():
+                return candidate.read_bytes()
+        raise FileNotFoundError(hit.path)
+
+    archive = vpk.VPK(root / hit.source)
+    return archive.read(hit.path)
+
+
 def summarise(findings: Sequence[AssetFinding]) -> dict:
     missing = [f.path for f in findings if not f.found]
     return {
@@ -172,4 +185,4 @@ def summarise(findings: Sequence[AssetFinding]) -> dict:
     }
 
 
-__all__ = ["BOOT_ASSETS", "AssetFinding", "Hit", "audit", "find", "summarise"]
+__all__ = ["BOOT_ASSETS", "AssetFinding", "Hit", "audit", "find", "read_hit", "summarise"]
