@@ -71,10 +71,6 @@ So when copying content, `left4dead_dlc3/` goes **beside** `left4dead/`, not ins
 it, and its absence is not fatal: the base menu loads, the campaign list just has no
 Sacrifice.
 
-Not to be confused with: **The Passing is L4D2's content** (`left4dead2_dlc1`). It
-was never part of L4D1 — fan ports of it exist, which is what makes the mix-up easy.
-A `left4dead_dlc3/` that does not contain The Passing is behaving correctly.
-
 ## The check, before blaming the engine
 
 ```sh
