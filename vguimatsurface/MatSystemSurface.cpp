@@ -18,6 +18,8 @@ ILauncherMgr *g_pLauncherMgr = NULL;
 #endif
 
 
+#include <stdio.h>
+
 #include "tier1/strtools.h"
 #include "tier0/icommandline.h"
 #include "tier0/dbg.h"
@@ -1938,6 +1940,52 @@ static void RemoveSpaces( CUtlString &str )
 	*dst = 0;
 }
 
+// Read a font straight off the host filesystem.
+//
+// The font fallback on Android is not game content: fontconfig answers with an
+// absolute path like /data/user/0/com.valvesoftware.source/files/dejavusans.ttf,
+// which the engine's filesystem will not open - it resolves paths through its
+// search paths, and an absolute host path is outside all of them. The log then says
+// "Found font: ..." immediately followed by "Failed to load custom font file",
+// a hundred times, and every label in the UI draws with no font at all.
+static bool ReadFontFileDirect( const char *pchPath, CUtlBuffer &buf )
+{
+	FILE *fp = fopen( pchPath, "rb" );
+	if ( !fp )
+		return false;
+
+	fseek( fp, 0, SEEK_END );
+	long len = ftell( fp );
+	fseek( fp, 0, SEEK_SET );
+	if ( len <= 0 )
+	{
+		fclose( fp );
+		return false;
+	}
+
+	char *pData = (char *)malloc( len );
+	if ( !pData )
+	{
+		fclose( fp );
+		return false;
+	}
+
+	const size_t read = fread( pData, 1, len, fp );
+	fclose( fp );
+
+	bool ok = ( (long)read == len );
+	if ( ok )
+	{
+		buf.SetBufferType( false, true );		// binary, growable
+		buf.Put( pData, len );
+		ok = ( buf.TellPut() == len );
+	}
+
+	free( pData );
+	return ok;
+}
+
+
 void *CMatSystemSurface::FontDataHelper( const char *pchFontName, int &size, const char *fontFileName )
 {
 	size = 0;
@@ -1950,8 +1998,16 @@ void *CMatSystemSurface::FontDataHelper( const char *pchFontName, int &size, con
 		CUtlBuffer buf;
 		if ( !g_pFullFileSystem->ReadFile( fontFileName, NULL, buf ) )
 		{
-			Msg( "Failed to load custom font file '%s'\n", fontFileName );
-			return NULL;
+			// Not content, or outside the search paths: try the host filesystem
+			// before giving up on it.
+			if ( !ReadFontFileDirect( fontFileName, buf ) )
+			{
+				Msg( "Failed to load custom font file '%s'\n", fontFileName );
+				return NULL;
+			}
+
+			Msg( "Loaded host font file '%s' (%d bytes, outside the search paths)\n",
+				 fontFileName, buf.TellPut() );
 		}
 
 		FT_Face face;

@@ -432,6 +432,18 @@ bool InputHandleInputEvent( const InputEvent_t &event )
 			memcpy( &_x, &event.m_nData2, sizeof(_x) );
 			memcpy( &_y, &event.m_nData3, sizeof(_y) );
 			x = w*_x; y = h*_y;
+
+			// Once per boot: does touch reach vgui at all? The chain is SDL finger
+			// event -> input system queue -> CGame::DispatchInputEvent -> here, and a
+			// menu that ignores taps is either this line missing from the log, or the
+			// panel having nothing hittable where the finger landed.
+			static bool s_bLoggedFirstFinger = false;
+			if ( !s_bLoggedFirstFinger )
+			{
+				s_bLoggedFirstFinger = true;
+				Msg( "vgui: first touch at (%d,%d) of %dx%d\n", x, y, w, h );
+			}
+
 			g_pIInput->UpdateCursorPosInternal( x, y );
 			g_pIInput->SetMouseCodeState( MOUSE_LEFT, vgui::BUTTON_PRESSED );
 			g_pIInput->InternalMousePressed( MOUSE_LEFT );
