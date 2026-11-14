@@ -45,6 +45,13 @@ JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 log() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# Breadcrumbs. The failing step is not obvious from a log nobody can download,
+# so each section records that it started and finished; on failure those lines
+# travel as one annotation and say where the run stopped.
+STEPS=$ROOT/.ci-steps.log
+: > "$STEPS"
+step() { printf '%s\n' "$*" >> "$STEPS"; }
+
 # A failing `waf configure` prints one line and writes the reason into
 # build/config.log, which is exactly the file nobody finds afterwards. Dump the
 # interesting part of it on the way out.
@@ -64,6 +71,12 @@ diagnose() {
 		printf '::error::config tail: %s\n' \
 			"$(tail -n 8 build/config.log | cut -c1-240 | tr '\n' '|')"
 	fi
+	printf '::error::steps: %s\n' "$(tr '\n' '|' < "$STEPS")"
+	for f in "$ROOT"/.ffmpeg/configure-*.log "$ROOT"/.ffmpeg/build-*.log; do
+		[ -f "$f" ] || continue
+		printf '::error::%s: %s\n' "$(basename "$f")" \
+			"$(tail -n 6 "$f" | cut -c1-200 | tr '\n' '|')"
+	done
 	if [ -f build/config.log ]; then
 		printf -- '--- configure errors (build/config.log) ---\n'
 		grep -iE 'error|fatal|cannot find|no such file|undefined reference|not found|unsupported|unknown' \
@@ -168,6 +181,7 @@ log "target $ARCH ($abi), api $API, toolchain $TOOLCHAIN, $BUILD_TYPE"
 # video module at all (which is what the tree did before this existed).
 FFMPEG_VERSION=${FFMPEG_VERSION:-n4.4.4}
 export FFMPEG_VERSION
+step "ffmpeg start"
 if [ "${FFMPEG:-1}" = "1" ]; then
 	log "ffmpeg $FFMPEG_VERSION for $ARCH"
 	FFMPEG_ROOT=${FFMPEG_ROOT:-$ROOT/.ffmpeg/$ARCH}
@@ -198,13 +212,17 @@ done
 # ---------------------------------------------------------------------------
 # 3. configure + build
 # ---------------------------------------------------------------------------
+step "ffmpeg ok"
 log "configure"
+step "configure start"
 ./waf configure -T "$BUILD_TYPE" \
 	--android="$ARCH,$TOOLCHAIN,$API" \
 	--build-games "$GAMES" \
 	--togles $EXTRA_FLAGS
 
+step "configure ok"
 log "build (-j$JOBS)"
+step "build start"
 ./waf build -j"$JOBS"
 
 # Modules are installed next to the engine on Android (PREFIX/lib/<abi>),

@@ -48,3 +48,4 @@ dist/
 *.keystore
 *.jks.base64
 *.keystore.base64
+.ci-steps.log
