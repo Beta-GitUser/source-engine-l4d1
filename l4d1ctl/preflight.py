@@ -766,10 +766,16 @@ _RULES: Tuple[Tuple[str, str, str, str, str], ...] = (
      "harmless for a single launch; it means the module and the engine "
      "disagree about who owns the cvar"),
 
-    (r"bink|Bink|\.bik",
-     WARN, "Bink video unsupported",
-     "the intro/splash video cannot play.",
-     "expected: -novid skips it; Bink playback is still an open task"),
+    (r"Can't find module - video_bink|Cannot load.*video_bink",
+     WARN, "video module missing",
+     "the artifact has no libvideo_bink.so, so .bik movies cannot play.",
+     "rebuild with FFmpeg (scripts/build-android.sh does it by default); "
+     "the boot continues without video"),
+
+    (r"Could not open source file .*\.bik|CBinkMaterial::OpenMovie.*failed",
+     WARN, "video file not on disk",
+     "libavformat needs a real path, and this .bik is not at one.",
+     "a packed .bik cannot play yet; check the file is loose under media/"),
 
     (r"Unable to find (material|model|sound|texture)s? \"?([^\"\s]+)",
      INFO, "missing assets",

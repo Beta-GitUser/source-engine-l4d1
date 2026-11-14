@@ -12,6 +12,7 @@ different hat. This file is the record.
 | `scripts/waifulib/` | this fork (nillerusr's tree) | as the repository | maintained here, not vendored | `scripts/test-tooling.sh` |
 | `lib/android/*` prebuilts | see the submodule's own licence file | per component | none in git; rebuilt only when the toolchain changes | — |
 | Android NDK r10e | downloaded by `scripts/build-android.sh` | Android NDK licence | not vendored, fetched on demand | workflow cache key |
+| FFmpeg (bink demuxer, bink/binkaudio decoders) | [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg) `n4.4.4` | **LGPL-2.1-or-later** | none - built from the pinned tag by `scripts/build-ffmpeg-android.sh`, never edited | `scripts/build-ffmpeg-android.sh` refuses to reuse a prefix whose `.version` does not match |
 
 ## What we may do, in one line
 
@@ -69,3 +70,38 @@ version than NDK r10e's, which is why the Android link needs
 `-Wl,--allow-shlib-undefined`. Nobody patched it; it is simply older than the
 rest of the toolchain. The permanent fix is rebuilding it with r10e, at which
 point that flag can go, and this row gets a real "rebuilt with r10e" note.
+
+## FFmpeg, and what the LGPL asks of this repository
+
+`video/video_bink` is the one target that cannot work without someone else's
+code: Bink's own decoder is licensed per title and its SDK is not
+redistributable, so the only open decoder for the format L4D1 ships is FFmpeg's.
+The alternatives were "no video" and "write a codec", and both are worse.
+
+What that obliges us to do, and how it is handled here:
+
+* **Say which version.** `scripts/build-ffmpeg-android.sh` pins `FFMPEG_VERSION`
+  (`n4.4.4` by default), prints it, and stamps it into `.ffmpeg/<arch>/.version`.
+  The prefix is rebuilt when the stamp does not match, so a cached build can never
+  silently be a different FFmpeg than the one the log claims.
+* **Do not take the GPL parts.** The configure line enables three libraries and
+  five codecs and disables everything else, with no `--enable-gpl`,
+  `--enable-nonfree`, `--enable-libx264`, or any other flag that changes the
+  licence of the result. Nothing here needs them.
+* **Keep it separable.** The libraries are static archives linked into
+  `libvideo_bink.so`, which is itself a module the engine loads by name and can
+  do without. The engine never links FFmpeg, and deleting one `.so` removes the
+  dependency completely - that is the relinking freedom the licence is protecting,
+  and `libvideo_bink.so` is the unit of it.
+* **Publish the source we built.** The tag, the configure line and the toolchain
+  are in `scripts/build-ffmpeg-android.sh` in this repository; rebuilding is one
+  command and produces the same archives. A written offer is in the module's
+  header comment for anyone who wants the exact source we shipped.
+* **Ship the licence text.** `video/video_bink/FFMPEG-LICENSE.txt` is FFmpeg's
+  LGPL-2.1 text as distributed in the same tag; it travels next to the module.
+
+If a future change needs a decoder outside that set - say, adding a codec for a
+custom map's video - it adds a `--enable-decoder=` term and nothing else. Adding
+`--enable-gpl` to make something build is the one move that must never happen:
+it would put the whole of this tree's video module out of compliance for no
+functional gain.

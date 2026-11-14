@@ -905,11 +905,27 @@ void CBinkMaterial::OpenMovie( const char *theMovieFileName )
 */
 
 	SetFileName( theMovieFileName );
-	printf("CBinkMaterial::OpenMovie( \"%s\" )\n", theMovieFileName);
+	Msg("CBinkMaterial::OpenMovie( \"%s\" )\n", theMovieFileName);
 
-	if (avformat_open_input(&m_AVFmtCtx, theMovieFileName, NULL, NULL) < 0)
+	// libavformat opens a path, and a path is not what the game hands us: it asks
+	// for "media/l4d_intro.bik" relative to the game directory, which is not the
+	// process's working directory on a phone and is not where a pack's contents
+	// live either. Ask the engine where the file really is, and let libavformat
+	// fail loudly if it is not on disk at all (a .bik inside a VPK has no path).
+	char szLocalPath[MAX_PATH];
+	const char *pOpenPath = theMovieFileName;
+	if ( g_pFullFileSystem != nullptr && !V_IsAbsolutePath( theMovieFileName ) )
+	{
+		const char *pLocal = g_pFullFileSystem->GetLocalPath( theMovieFileName, szLocalPath, sizeof( szLocalPath ) );
+		if ( pLocal != nullptr )
+		{
+			pOpenPath = pLocal;
+		}
+	}
+
+	if (avformat_open_input(&m_AVFmtCtx, pOpenPath, NULL, NULL) < 0)
  	{
-		Warning("Could not open source file %s\n", theMovieFileName);
+		Warning("Could not open source file %s (looked for %s)\n", theMovieFileName, pOpenPath);
  		SetResult( VideoResult::FILE_ERROR_OCCURED ) ;
 		Reset();
 		return;
@@ -956,7 +972,7 @@ void CBinkMaterial::OpenMovie( const char *theMovieFileName )
 
 	m_MovieFrameDuration = 1.0/((double)m_AVVideoStream->r_frame_rate.num/(double)m_AVVideoStream->r_frame_rate.den);
 	m_TextureRegen.SetSourceImage( m_RGBData, m_VideoFrameWidth, m_VideoFrameHeight );
-	printf("Video FPS: %lf\n", (double)m_AVVideoStream->r_frame_rate.num/(double)m_AVVideoStream->r_frame_rate.den);
+	Msg("Video FPS: %lf\n", (double)m_AVVideoStream->r_frame_rate.num/(double)m_AVVideoStream->r_frame_rate.den);
 
 #if 0
 	Handle	MovieFileDataRef = nullptr;

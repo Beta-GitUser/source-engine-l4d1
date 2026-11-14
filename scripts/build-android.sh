@@ -145,6 +145,25 @@ log "ndk $ndk_rev at $NDK_HOME"
 log "target $ARCH ($abi), api $API, toolchain $TOOLCHAIN, $BUILD_TYPE"
 
 # ---------------------------------------------------------------------------
+# 1b. ffmpeg - the Bink decoder video_bink links against
+# ---------------------------------------------------------------------------
+# Third-party, so it is a separate script with its own cache: a finished
+# .ffmpeg/<arch> makes this a no-op, and FFMPEG=0 builds the engine without the
+# video module at all (which is what the tree did before this existed).
+FFMPEG_VERSION=${FFMPEG_VERSION:-n4.4.4}
+export FFMPEG_VERSION
+if [ "${FFMPEG:-1}" = "1" ]; then
+	log "ffmpeg $FFMPEG_VERSION for $ARCH"
+	FFMPEG_ROOT=${FFMPEG_ROOT:-$ROOT/.ffmpeg/$ARCH}
+	export FFMPEG_ROOT
+	sh "$ROOT/scripts/build-ffmpeg-android.sh"
+else
+	log "ffmpeg disabled (FFMPEG=0) - libvideo_bink.so will not be built"
+	FFMPEG_ROOT=""
+	export FFMPEG_ROOT
+fi
+
+# ---------------------------------------------------------------------------
 # 2. sources
 # ---------------------------------------------------------------------------
 if [ ! -f waf ]; then

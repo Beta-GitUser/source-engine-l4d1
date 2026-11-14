@@ -630,7 +630,8 @@ The rules cover what actually goes wrong, in practice:
 | `Error parsing … .vpk` | fatal | truncated pack; re-download |
 | `Memory is corrupt` | fatal | allocator damage, almost always ABI drift |
 | `Attempted to create unknown entity type X` | info | **expected** with the HL2 bootstrap. Collected and deduped into one list — that list is the checklist for the L4D game code |
-| `bink` / `.bik` | warn | intro video unsupported (open task) |
+| `Can't find module - video_bink.so` | warn | the video module is not in the artifact — build with FFmpeg (see [VIDEO.md](VIDEO.md)); the boot is unaffected |
+| `Could not open source file media/…bik` | warn | the movie is not on disk where the filesystem says it is; a packed `.bik` has no path for libavformat to open |
 | `SteamAPI_Init` | warn | expected with `-nosteam` |
 | `Cvar_Get: cvar already exists` | warn | duplicate registration, harmless for one launch |
 | `Couldn't exec <cfg>` | warn | a `+exec` config was missing |

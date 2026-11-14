@@ -1,14 +1,9 @@
-# Bink video, and what it would take
+# Bink video, and what it took to play it
 
-The device log carries one line per boot:
-
-```
-Can't find module - video_bink.so
-```
-
-It is a warning, not a fault: the engine asks for a video subsystem, does not get
-one, and carries on. This is what is behind it, and what "implementing Bink"
-would actually mean here.
+Status: **built**. `libvideo_bink.so` is part of the artifact when FFmpeg is
+available at configure time, decodes `.bik` through libavformat/libavcodec, and
+draws into a material. The movie is **silent** — audio is the remaining half of
+the work, and it is the last section of this page.
 
 ## What a `.bik` is
 
@@ -37,76 +32,82 @@ SDK is not redistributable, which is why no Source tree contains one.
 
 `public/video/ivideoservices.h` defines `IVideoServices` / `IVideoSubSystem` /
 `IVideoMaterial`. `video/videoservices.cpp` maps an extension to a module name
-(`.bik` → `video_bink`), and `Sys_LoadModule`s it on first use. The module returns
+(`.bik` → `video_bink`) and `Sys_LoadModule`s it on first use. The module returns
 an `IVideoMaterial`, and the engine hangs that material on a panel
-(`game/client/vgui_video.h`). The movie therefore draws like any other textured
-quad.
+(`game/client/vgui_video.h`), so the movie draws like any other textured quad.
 
-The tree's own implementation, `video/video_bink/`, has no Bink SDK types in it at
-all: `bink_material.cpp` decodes through **libavformat/libavcodec**
-(`avcodec_send_packet` / `avcodec_receive_frame`), converts YUV to RGB888 on the
-CPU with `yuv_rgb.c`, and refreshes a procedural `IMAGE_FORMAT_RGB888` texture
-through an `ITextureRegenerator`. The `bik_dx90` shader exists but this path does
-not need it — the shader would only matter if frames stayed in YUV.
+The decoder has no Bink SDK types in it: `bink_material.cpp` decodes through
+libavformat/libavcodec (`avcodec_send_packet` / `avcodec_receive_frame`),
+converts YUV to RGB888 on the CPU with `yuv_rgb.c`, and refreshes a procedural
+`IMAGE_FORMAT_RGB888` texture through an `ITextureRegenerator`. The `bik_dx90`
+shader exists but this path does not use it — that shader is for keeping frames
+in YUV on the GPU.
 
-So the honest answer to "how do we implement .bik" is: **we don't write a
-decoder; we build the one that is already here against a decoder library that
-already has one.** FFmpeg's `bink.c` and `binkaudio.c` are the only open
-implementations, are LGPL, and are what this module was written against.
+## What was missing, and what was added
 
-## Why it is not built today
+The module source has been in the tree for years (it is nillerusr's), and was
+built by nothing. Three separate gaps, in the order they had to be closed:
 
-Three separate gaps, in order:
+1. **No FFmpeg.** `external/` holds `v8` and `vpc` and nothing else, and the
+   module links `AVCODEC AVUTIL AVFORMAT`. Added:
+   `scripts/build-ffmpeg-android.sh`, which downloads a pinned tag
+   (`FFMPEG_VERSION`, default `n4.4.4`) and cross-compiles three static
+   libraries with only the bink demuxer, the bink/binkaudio/IMA decoders and the
+   `file` protocol enabled.
+2. **Nothing recursed into it.** `video/wscript` builds `video_services` only,
+   and the top-level list names `'video'` twice without ever naming the
+   subdirectory. Added: `projects['game'] += ['video/video_bink']` in the
+   top-level `wscript`, gated on `HAVE_FFMPEG` so a tree without FFmpeg builds
+   exactly as it did before.
+3. **It was not in the artifact.** The CI step copies every `build/**/*.so`, so
+   the module appears in the artifact by itself once it builds.
 
-1. **No FFmpeg.** `external/` holds `v8` and `vpc` and nothing else. The module's
-   `wscript` links `AVCODEC AVUTIL AVFORMAT`, so it cannot link on Android as
-   things stand.
-2. **Nothing recurses into it.** `video/wscript` builds `video_services` only;
-   `video/video_bink/wscript` exists and is never called. The top-level `wscript`
-   lists `'video'` twice and never the subdirectory.
-3. **It is not in the artifact.** The module list is 27 `.so` files, and
-   `libvideo_bink.so` is not one of them, so even a successful build would not
-   reach the device.
+Also fixed while wiring it up: `avformat_open_input` was handed the game's own
+relative path (`media/…`), which is not the process working directory on a phone.
+`OpenMovie` now asks the filesystem for the real path first (`GetLocalPath`) and
+says both names if the open still fails.
 
-## The three routes
-
-| Route | Work | What it buys | Cost |
-| --- | --- | --- | --- |
-| Leave it (today) | none | nothing; one warning line per boot | the movie does not draw, everything else is unaffected |
-| Build the module against FFmpeg | vendor FFmpeg for aarch64 configured with only the `bink`, `binkaudio` and PCM/IMA decoders plus the `bink` demuxer (`--disable-everything --enable-decoder=...`), recurse the subfolder in waf, add the module to the artifact | intro movie plays, with audio — `binkaudio.c` is the "Bink audio support" the fork's README still lists as open | roughly 2 MB of static libav linked into one `.so`, plus licence paperwork |
-| Write a decoder | weeks of reverse engineering | the same as above, worse | not worth discussing |
-
-Licence, because it decides the shape of the change: FFmpeg is LGPL-2.1+ by
-default. Shipping it as a **separately loadable `libvideo_bink.so`** that links
-`libavcodec.so` dynamically satisfies LGPL's relinking requirement; a
-statically-linked-in, `--enable-gpl` build does not, and is not an option here.
-Either way it needs a row in [THIRDPARTY.md](THIRDPARTY.md), the licence text, and
-a written offer for the corresponding source.
-
-## What to measure before doing any of it
-
-Ask the content, not the README:
+## Building it
 
 ```sh
-find /storage/emulated/0/srceng/left4dead -iname '*.bik' -printf '%10s %p\n'
-python3 scripts/vpk-list.py /storage/emulated/0/srceng/left4dead/pak01_dir.vpk --filter .bik
+# in CI, or any x86_64 Linux box with the NDK
+sh scripts/build-android.sh                  # builds FFmpeg first, then the engine
+FFMPEG=0 sh scripts/build-android.sh         # old behaviour: no video module
+FFMPEG_ROOT=/opt/ffmpeg-aarch64 sh scripts/build-android.sh   # reuse a prefix
 ```
 
-`scripts/vpk-list.py` only reads the directory file's own entry table, so both
-commands together cover loose files and packs. If the answer is one intro movie
-under `media/`, the priority is clear: after the boot ladder, not before. A port
-that cannot reach the main menu does not need a nicer intro.
+FFmpeg lives in `.ffmpeg/<arch>` (git-ignored, cached in CI by
+`FFMPEG_VERSION`). A finished prefix is reused until the version changes; the
+build log prints the prefix, and configure prints
+`FFmpeg (Bink video): /path` when it found it, or
+`FFmpeg (Bink video): no - video_bink will not be built`.
 
-## If it is spiked
+## Limits that are deliberate
 
-The proof, in order, with no ambiguity in any step:
+* **`--disable-asm`.** NDK r10e's assembler predates parts of FFmpeg's aarch64
+  `.S` set. A 35-second intro decoding slower is a cheaper failure than a build
+  that will not assemble; turn asm on when the rest is proven.
+* **The file must be loose.** libavformat opens a path, so a `.bik` inside
+  `pak01` has nothing to open. L4D1 ships its movies loose under
+  `left4dead/media/`, so this costs nothing today. Supporting packed video means
+  an AVIOContext over `IFileSystem`, not a bigger decoder.
+* **Silent.** See below.
 
-1. `libvideo_bink.so` appears in the build output and in the artifact, alongside
-   the 27 existing modules.
-2. `nm -D --undefined-only libvideo_bink.so | grep ' av'` resolves against the
-   shipped `libavcodec.so` / `libavformat.so` — no silent static copy of a
-   GPL-only decoder.
-3. A boot **without** `-novid` draws the intro instead of logging
-   `Can't find module - video_bink.so`.
-4. Frame pacing: the module updates a texture from the main thread, so a slow
-   decode shows up as input lag, not as a log line. Watch for it.
+## The remaining half: audio
+
+`CBinkMaterial` sets `m_bHasAudio = false` and its audio paths are QuickTime
+leftovers behind `#if defined(WIN32) || defined(OSX)`; on Android
+`SoundDeviceCommand` returns `OPERATION_NOT_SUPPORTED`, so the movie plays
+without sound. Closing that needs three things that are all outside the decoder:
+
+1. decode the audio stream (avcodec already has `binkaudio_dct`,
+   `binkaudio_rdft` and `adpcm_ima_qt`, all enabled in the build),
+2. resample to the engine's mixer format — `--enable-swresample` and
+   `-lswresample` in the module's `use`, which is deliberately not linked yet
+   because nothing calls it,
+3. push it into the sound system the way the engine's own movie audio does
+   (`IVideoCommonServices` in `public/video/ivideoservices.h` is the seam;
+   check what `engine/` passes for `SET_SOUND_MANAGER_DEVICE` before writing it).
+
+That is a separate change with its own measurement, not a follow-up commit to
+this one.

@@ -71,6 +71,10 @@ jobs:
       # inherited value, so the script fetches NDK_VERSION instead.
       NDK_HOME: ""
       ANDROID_NDK_HOME: ""
+      # The Bink decoder video_bink links against. Building it is ~6 minutes, so
+      # the whole .ffmpeg tree is cached keyed by version; the script's own stamp
+      # makes a cache hit a no-op. FFMPEG=0 builds without the video module.
+      FFMPEG_VERSION: n4.4.4
 
     steps:
     - name: Checkout (with submodules)
@@ -94,6 +98,12 @@ jobs:
       with:
         path: .ndk
         key: ndk-${{ env.NDK_VERSION }}-linux-x86_64
+
+    - name: Cache FFmpeg
+      uses: actions/cache@v4
+      with:
+        path: .ffmpeg
+        key: ffmpeg-${{ env.FFMPEG_VERSION }}-${{ env.ARCH }}-${{ env.API }}
 
     - name: Configure and build
       id: build

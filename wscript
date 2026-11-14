@@ -421,6 +421,29 @@ def check_deps(conf):
 		conf.check(lib='android_support', uselib_store='ANDROID_SUPPORT')
 		conf.check(lib='opus', uselib_store='OPUS')
 
+	# FFmpeg, for the Bink decoder in video/video_bink. Bink's own SDK is not
+	# redistributable, and FFmpeg's bink/binkaudio decoders are the only open
+	# implementation there is; scripts/build-ffmpeg-android.sh builds a minimal
+	# one into .ffmpeg/<arch>, or FFMPEG_ROOT names a prefix explicitly.
+	# Absent means video_bink is skipped, not that the build fails: the engine
+	# treats a missing video subsystem as "this machine cannot play video".
+	ffmpeg_root = os.environ.get('FFMPEG_ROOT')
+	if not ffmpeg_root:
+		candidate = os.path.abspath(os.path.join('.ffmpeg', conf.env.DEST_CPU))
+		ffmpeg_root = candidate if os.path.isdir(candidate) else ''
+	if ffmpeg_root and os.path.isfile(os.path.join(ffmpeg_root, 'include', 'libavcodec', 'avcodec.h')):
+		conf.env.HAVE_FFMPEG = True
+		conf.env.FFMPEG_ROOT = os.path.abspath(ffmpeg_root)
+		conf.env.INCLUDES_FFMPEG = [os.path.join(conf.env.FFMPEG_ROOT, 'include')]
+		conf.env.LIBPATH_FFMPEG = [os.path.join(conf.env.FFMPEG_ROOT, 'lib')]
+		# Static archives, so the order matters: avformat needs avcodec, both
+		# need avutil.
+		conf.env.LIB_FFMPEG = ['avformat', 'avcodec', 'avutil']
+		conf.msg('FFmpeg (Bink video)', conf.env.FFMPEG_ROOT)
+	else:
+		conf.env.HAVE_FFMPEG = False
+		conf.msg('FFmpeg (Bink video)', 'no - video_bink will not be built')
+
 	if conf.env.DEST_OS == 'win32':
 		conf.check(lib='libz', uselib_store='ZLIB', define_name='USE_ZLIB')
 		# conf.check(lib='nvtc', uselib_store='NVTC')
@@ -656,6 +679,13 @@ def build(bld):
 
 	if bld.env.OPUS or bld.env.DEST_OS == 'android':
 		projects['game'] += ['engine/voice_codecs/opus']
+
+	# The Bink subsystem, when there is something for it to decode with. It is a
+	# module rather than part of the engine because IVideoServices loads it by name
+	# at the point a movie is asked for, and because it is the only target that
+	# depends on a third-party library (see scripts/build-ffmpeg-android.sh).
+	if getattr(bld.env, 'HAVE_FFMPEG', False):
+		projects['game'] += ['video/video_bink']
 
 	if bld.env.TESTS:
 		bld.add_subproject(projects['tests'])

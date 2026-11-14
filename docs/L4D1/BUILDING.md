@@ -149,14 +149,14 @@ Two different layouts, and installing the wrong one is the classic mistake:
 The Android artifact is not just the four modules the engine looks up by name.
 `libclient.so` and `libserver.so` carry `DT_NEEDED` edges to `tier0`,
 `materialsystem`, `studiorender`, `datacache` and friends, so the artifact ships
-every `.so` the build produced — **26 files at the time of writing** — plus the
+every `.so` the build produced — **27 files with video, 26 without** — plus the
 prebuilt third-party libraries from the submodule's `lib/android/<arch>/`
 (`libSDL2.so`), which waf does not produce. A carrier that copies only the named
 four gets a `dlopen` failure naming one of the others.
 
 Both halves of that sentence were once wrong here: the artifact carried four
 modules, and it did not carry SDL2 either. The collection step now reports the full
-name list as an annotation (`collected total::26 modules … names: …`), so the
+name list as an annotation (`collected total::27 modules … names: …`), so the
 artifact's contents are checkable without downloading it.
 
 On Android the modules are `libclient.so` / `libserver.so` and they ship beside
@@ -180,6 +180,30 @@ device instead:
 adb push out/libclient.so out/libserver.so /data/local/tmp/srceng/
 adb shell "cd /data/local/tmp/srceng && ./hl2_linux -game left4dead -nosteam -insecure"
 ```
+
+## FFmpeg, and the one third-party build step
+
+`libvideo_bink.so` needs a decoder for Bink, and Bink's own SDK is not something
+that can be shipped. `scripts/build-android.sh` therefore builds FFmpeg first:
+
+```sh
+sh scripts/build-android.sh            # FFmpeg, then the engine (default)
+FFMPEG=0 sh scripts/build-android.sh   # skip it: no libvideo_bink.so, as before
+FFMPEG_VERSION=n4.4.4 sh scripts/build-android.sh
+FFMPEG_ROOT=/opt/ffmpeg-aarch64 sh scripts/build-android.sh   # reuse a prefix
+```
+
+It lands in `.ffmpeg/<arch>` (git-ignored, cached in CI by version). The script
+downloads a pinned tag, configures three static libraries with a minimal codec
+set, and prints `==> ffmpeg n4.4.4 ready at …`. Configure then reports
+`FFmpeg (Bink video): <prefix>`; if it reports `no - video_bink will not be
+built`, the prefix is missing or incomplete and nothing else about the build
+changes. Logs live in `.ffmpeg/configure-<arch>.log` and
+`.ffmpeg/build-<arch>.log`.
+
+See [VIDEO.md](VIDEO.md) for what it buys and what it still does not do (the
+movie is silent), and [THIRDPARTY.md](THIRDPARTY.md) for the licence obligations
+that come with it.
 
 ## Where the Android app comes from
 
