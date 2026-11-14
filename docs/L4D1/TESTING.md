@@ -98,6 +98,9 @@ Two checks, both local:
   a hole no entry references. Valve numbers parts contiguously, so a gap is a gap.
 * `python3 -m l4d1ctl content --trees --root …` — which trees exist, loose or packed.
 
+Which depot holds which part of the tree, and the ARM64 filters that quietly
+narrow the set, are on `CONTENT.md` — worth reading before a third attempt.
+
 And the re-run that costs the least bandwidth: the same DepotDownloader command with
 `-validate` and **no** `-depot`, so the whole app's depot set is in scope and only
 files that are missing or fail their checksum are fetched
