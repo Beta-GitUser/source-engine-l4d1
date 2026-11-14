@@ -658,6 +658,14 @@ def configure(conf):
 		conf.env.CC.insert(0, 'ccache')
 		conf.env.CXX.insert(0, 'ccache')
 
+	# video_bink belongs in the list configure walks, not only in the one build
+	# walks: add_subproject saves an environment per project, and build() reads it
+	# back by name. Adding it on one side only fails with
+	# "Can't find env cache video/video_bink" before a single file is compiled -
+	# which is a 20-second failure that looks like a compile error in any summary.
+	if getattr(conf.env, 'HAVE_FFMPEG', False) and 'video/video_bink' not in projects['game']:
+		projects['game'].append('video/video_bink')
+
 	if conf.options.TESTS:
 		conf.add_subproject(projects['tests'])
 	elif conf.options.DEDICATED:
