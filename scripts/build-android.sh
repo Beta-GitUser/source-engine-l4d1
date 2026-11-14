@@ -68,8 +68,12 @@ diagnose() {
 		printf '::error::log errors: %s\n' \
 			"$(grep -aE 'error:|Error [0-9]+|Traceback|fatal|No such file' build-android.log \
 				| grep -av 'sysroot=' | tail -n 6 | cut -c1-300 | tr '\n' '|')"
-		printf '::error::log tail: %s\n' \
-			"$(tail -n 40 build-android.log | cut -c1-200 | tr '\n' '|')"
+		# Ten annotations per step is the limit, so the tail travels as a handful of
+		# dense chunks rather than forty thin ones.
+		tail -c 4800 build-android.log | tr '\n' '|' | fold -w 780 | nl -ba | \
+			while read -r num chunk; do
+				printf '::error::tail %s/6 %s\n' "$num" "$chunk"
+			done
 	fi
 	if [ -f build/config.log ]; then
 		printf '::error::config tail: %s\n' \

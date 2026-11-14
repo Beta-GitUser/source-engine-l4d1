@@ -154,11 +154,12 @@ jobs:
         # configure/build logs it writes before waf is even called.
         echo "--- tail of build-android.log ---"
         tail -n 40 build-android.log | annotate || true
-        for f in .ffmpeg/configure-*.log .ffmpeg/build-*.log; do
-          [ -f "$f" ] || continue
-          echo "--- tail of $f ---"
-          tail -n 20 "$f" | annotate || true
-        done
+        # Same trick, from the other side: the step's own annotations are capped at
+        # ten, so the tail is sent in a few dense chunks instead of many thin ones.
+        if [ -f build-android.log ]; then
+          tail -c 4800 build-android.log | tr '\n' '|' | fold -w 780 | nl -ba | \
+            while IFS= read -r line; do echo "::error::wf-tail $line"; done
+        fi
 
     - name: Collect libraries
       if: always()
