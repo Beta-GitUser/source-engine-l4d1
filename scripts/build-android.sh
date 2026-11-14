@@ -64,8 +64,12 @@ diagnose() {
 	# and they are one line each. So the tail travels as a single line, cut down
 	# to what fits, with '|' where the newlines were.
 	if [ -f build-android.log ]; then
+		printf '::error::log lines: %s\n' "$(grep -ac '' build-android.log)"
+		printf '::error::log errors: %s\n' \
+			"$(grep -aE 'error:|Error [0-9]+|Traceback|fatal|No such file' build-android.log \
+				| grep -av 'sysroot=' | tail -n 6 | cut -c1-300 | tr '\n' '|')"
 		printf '::error::log tail: %s\n' \
-			"$(tail -n 12 build-android.log | cut -c1-240 | tr '\n' '|')"
+			"$(tail -n 40 build-android.log | cut -c1-200 | tr '\n' '|')"
 	fi
 	if [ -f build/config.log ]; then
 		printf '::error::config tail: %s\n' \
