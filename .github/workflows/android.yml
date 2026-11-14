@@ -144,6 +144,11 @@ jobs:
           echo "--- from build/config.log ---"
           grep -aE 'error|fatal|not found|unknown|unsupported' build/config.log \
             | tail -n 6 | annotate || true
+          # A waf configure failure that is a Python traceback matches none of
+          # those words, and the log is an artifact nobody can download from a
+          # restricted network. Annotate the tail unconditionally.
+          echo "--- tail of build/config.log ---"
+          tail -n 25 build/config.log | annotate || true
         fi
 
     - name: Collect libraries

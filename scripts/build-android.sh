@@ -56,6 +56,10 @@ diagnose() {
 		printf -- '--- configure errors (build/config.log) ---\n'
 		grep -iE 'error|fatal|cannot find|no such file|undefined reference|not found|unsupported|unknown' \
 			build/config.log | tail -n 20 || tail -n 20 build/config.log || true
+		# The interesting failure is often a Python traceback, which matches none
+		# of those patterns. Its last lines are what name the line of wscript.
+		printf -- '--- tail of build/config.log ---\n'
+		tail -n 25 build/config.log || true
 	fi
 	if [ -f build-android.log ]; then
 		printf -- '--- compiler/linker errors ---\n'
