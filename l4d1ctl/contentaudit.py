@@ -289,4 +289,134 @@ def summarise(findings: Sequence[AssetFinding]) -> dict:
     }
 
 
-__all__ = ["BOOT_ASSETS", "AssetFinding", "Hit", "audit", "find", "read_hit", "summarise"]
+# Files the engine and the port write while running. They exist on the device and
+# not in a fresh download, so a comparison that counted them would always report a
+# difference that means nothing.
+GENERATED_FILES = (
+    "session.log", "session.prev.log", "videoconfig_android.cfg",
+    "console.log", "config.cfg", "video.txt", "userconfig.cfg",
+)
+
+
+@dataclass
+class MirrorDiff:
+    """Two content trees compared by relative path and size."""
+
+    reference: Path
+    root: Path
+    reference_files: int = 0
+    reference_bytes: int = 0
+    root_files: int = 0
+    root_bytes: int = 0
+    missing: List[tuple] = field(default_factory=list)     # (path, size)
+    extra: List[str] = field(default_factory=list)
+    mismatched: List[tuple] = field(default_factory=list)  # (path, ref, root)
+
+    @property
+    def same(self) -> bool:
+        return not (self.missing or self.mismatched)
+
+
+def _walk_files(root: Path, ignore: Sequence[str]) -> Dict[str, tuple]:
+    """``{relative path lowercased: (as stored, size)}`` for one tree."""
+    files: Dict[str, tuple] = {}
+    if not root.is_dir():
+        return files
+    ignored = {name.lower() for name in ignore}
+    for candidate in root.rglob("*"):
+        if not candidate.is_file():
+            continue
+        relative = candidate.relative_to(root).as_posix()
+        parts = relative.lower().split("/")
+        if parts[-1] in ignored or ".git" in parts:
+            continue
+        # A game directory under the root (left4dead/materials/...) and a root that
+        # *is* the game directory must compare equal, so key on the tail after the
+        # first component when both spellings exist.
+        files.setdefault(relative.lower(), (relative, candidate.stat().st_size))
+    return files
+
+
+# The directories a game's content sits in. Comparing ".../srceng" with
+# ".../srceng/left4dead" has to ignore exactly one of these, on whichever side it
+# appears, or every path looks different for a reason that is not a lost file.
+GAME_ROOT_DIRS = ("left4dead", "left4dead2", "left4dead_dlc3", "hl2", "hl2mp",
+                  "platform", "ep2", "episodic", "hl2_episodic")
+
+
+def _normalise(files: Dict[str, tuple]) -> Dict[str, tuple]:
+    """Drop a leading game-directory component, so srceng/ and left4dead/ compare."""
+    normalised: Dict[str, tuple] = {}
+    for key, value in files.items():
+        head, separator, tail = key.partition("/")
+        if separator and head in GAME_ROOT_DIRS:
+            key = tail
+        normalised.setdefault(key, value)
+    return normalised
+
+
+def compare(root: Path, reference: Path,
+            ignore: Sequence[str] = GENERATED_FILES) -> MirrorDiff:
+    """What a copy is missing relative to the tree it came from.
+
+    Copying a 3 GiB content tree across filesystems on a phone is exactly the kind
+    of thing that silently loses a file or truncates one, and the engine's reaction
+    is another "couldn't find" line that looks like the content was never there.
+    Comparing paths and sizes against the source tree answers that before a launch.
+    """
+    root = Path(root).expanduser()
+    reference = Path(reference).expanduser()
+    have = _normalise(_walk_files(root, ignore))
+    want = _normalise(_walk_files(reference, ignore))
+
+    diff = MirrorDiff(reference=reference, root=root)
+    diff.reference_files = len(want)
+    diff.reference_bytes = sum(size for _, size in want.values())
+    diff.root_files = len(have)
+    diff.root_bytes = sum(size for _, size in have.values())
+
+    for key, (stored, size) in sorted(want.items()):
+        if key not in have:
+            diff.missing.append((stored, size))
+        elif have[key][1] != size:
+            diff.mismatched.append((stored, size, have[key][1]))
+    for key, (stored, _) in sorted(have.items()):
+        if key not in want:
+            diff.extra.append(stored)
+    return diff
+
+
+def render_diff(diff: MirrorDiff, *, limit: int = 20) -> List[str]:
+    lines = [f"reference: {diff.reference}",
+             f"           {diff.reference_files} files, "
+             f"{diff.reference_bytes / (1024 * 1024):.1f} MiB",
+             f"this copy: {diff.root}",
+             f"           {diff.root_files} files, "
+             f"{diff.root_bytes / (1024 * 1024):.1f} MiB",
+             ""]
+
+    if diff.same:
+        lines.append("nothing is missing and no file is truncated: every path in the")
+        lines.append("reference exists here at the same size.")
+    else:
+        if diff.missing:
+            lines.append(f"missing here: {len(diff.missing)} file(s)")
+            for stored, size in diff.missing[:limit]:
+                lines.append(f"  {stored} ({size} b)")
+            if len(diff.missing) > limit:
+                lines.append(f"  ... and {len(diff.missing) - limit} more")
+        if diff.mismatched:
+            lines.append(f"truncated or changed: {len(diff.mismatched)} file(s)")
+            for stored, want, have in diff.mismatched[:limit]:
+                lines.append(f"  {stored}: {have} b here, {want} b in the reference")
+            if len(diff.mismatched) > limit:
+                lines.append(f"  ... and {len(diff.mismatched) - limit} more")
+    if diff.extra:
+        lines.append(f"present only here: {len(diff.extra)} file(s), first few:")
+        for stored in diff.extra[:5]:
+            lines.append(f"  {stored}")
+    return lines
+
+
+__all__ = ["BOOT_ASSETS", "AssetFinding", "Hit", "MirrorDiff", "audit", "compare",
+           "find", "read_hit", "render_diff", "summarise", "trees", "TreeFinding"]

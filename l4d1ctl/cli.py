@@ -486,6 +486,16 @@ def _print_trees(root: Path, json_output: bool = False) -> int:
     return 0
 
 
+def _print_compare(root: Path, source: Path) -> int:
+    if not source.is_dir():
+        print(f"no such directory: {source}", file=sys.stderr)
+        return 2
+    diff = contentaudit.compare(root, source)
+    for line in contentaudit.render_diff(diff):
+        print(line)
+    return 0 if diff.same else 1
+
+
 def cmd_content(args: argparse.Namespace) -> int:
     if args.root:
         root = Path(args.root).expanduser()
@@ -499,6 +509,9 @@ def cmd_content(args: argparse.Namespace) -> int:
 
     if args.trees:
         return _print_trees(root, json_output=args.json)
+
+    if args.compare:
+        return _print_compare(root, Path(args.compare).expanduser())
 
     findings = contentaudit.audit(root)
     if args.json:
@@ -993,6 +1006,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trees", action="store_true",
                    help="where each top-level tree (resource/, shaders/, scripts/) lives, "
                         "or that it is missing from the content entirely")
+    p.add_argument("--compare", metavar="SOURCE",
+                   help="check this copy against the tree it was copied from: list what "
+                        "is missing or truncated here (files the engine writes are ignored)")
     p.set_defaults(func=cmd_content)
 
     p = sub.add_parser("surface",

@@ -353,3 +353,58 @@ class PartNumberingTests(unittest.TestCase):
         (self.dir / "pak01_000.vpk").unlink()
         problems = vpk.VPK(self.dir / "pak01_dir.vpk").verify()
         self.assertEqual(len([p for p in problems if "pak01_000.vpk" in p]), 1, problems)
+
+
+class CompareTests(unittest.TestCase):
+    """Copying 3 GiB across filesystems on a phone loses files quietly.
+
+    The engine's reaction to a truncated copy is one more "couldn't find" line that
+    is indistinguishable from content that was never downloaded, so the comparison
+    against the source tree is what separates the two.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="content-compare-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, True))
+        self.src = self.dir / "src"
+        self.dst = self.dir / "dst"
+        for base in (self.src, self.dst):
+            (base / "left4dead" / "resource").mkdir(parents=True)
+
+    def write(self, base, relative, data=b"data"):
+        target = base / "left4dead" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+
+    def test_an_identical_copy_is_same(self):
+        self.write(self.src, "resource/GameMenu.res")
+        self.write(self.dst, "resource/GameMenu.res")
+        self.assertTrue(contentaudit.compare(self.dst, self.src).same)
+
+    def test_a_missing_file_is_named_with_its_size(self):
+        self.write(self.src, "resource/GameMenu.res", b"0123456789")
+        diff = contentaudit.compare(self.dst, self.src)
+        self.assertFalse(diff.same)
+        self.assertEqual(diff.missing, [("left4dead/resource/GameMenu.res", 10)])
+
+    def test_a_truncated_file_is_not_same(self):
+        self.write(self.src, "resource/GameMenu.res", b"0123456789")
+        self.write(self.dst, "resource/GameMenu.res", b"0123")
+        diff = contentaudit.compare(self.dst, self.src)
+        self.assertFalse(diff.same)
+        self.assertEqual(diff.mismatched,
+                         [("left4dead/resource/GameMenu.res", 10, 4)])
+
+    def test_files_the_port_writes_are_ignored(self):
+        self.write(self.src, "resource/GameMenu.res")
+        self.write(self.dst, "resource/GameMenu.res")
+        self.write(self.dst, "session.log", b"log")
+        self.write(self.dst, "videoconfig_android.cfg", b"cfg")
+        self.assertTrue(contentaudit.compare(self.dst, self.src).same)
+
+    def test_the_game_directory_compares_equal_to_the_root_that_holds_it(self):
+        self.write(self.src, "resource/GameMenu.res")
+        (self.dst / "left4dead" / "resource" / "GameMenu.res").unlink(missing_ok=True)
+        (self.dst / "resource").mkdir()
+        (self.dst / "resource" / "GameMenu.res").write_bytes(b"data")
+        self.assertTrue(contentaudit.compare(self.dst, self.src).same)

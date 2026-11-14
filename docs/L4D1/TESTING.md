@@ -84,6 +84,25 @@ that pack carries `materials/`, `models/` and `particles/` and nothing else — 
 folders in `left4dead/`, which is exactly why a `pak01.vpk` listing is the wrong
 place to look for `GameMenu.res`.
 
+### Did the copy lose anything?
+
+Moving a few GiB from a proot-distro rootfs, a PC or a USB stick onto `/storage/emulated/0`
+is the other half of this problem: a truncated file or a folder that never copied
+produces the same "couldn't find" line as a file that was never downloaded, and the
+fixes are opposite. Point the tool at the tree you copied *from*:
+
+```sh
+python3 -m l4d1ctl content --compare /data/.../rootfs/root/l4d1/left4dead \
+                            --root /storage/emulated/0/srceng/left4dead
+```
+
+It compares relative paths and sizes, ignoring the files the port writes itself
+(`session.log`, `videoconfig_android.cfg`, `config.cfg` …), and exits non-zero with a
+list of what is missing, truncated, or only present here. A leading `left4dead/`
+(or `hl2/`, `platform/`) component is ignored on either side, so passing the engine
+base directory on one side and the game directory on the other still compares like
+with like.
+
 ### When the download itself is the suspect
 
 Whole folders missing (`resource/`, `scripts/`, `sound/`, `cfg/`) while the pack
