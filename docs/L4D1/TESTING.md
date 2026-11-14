@@ -84,6 +84,30 @@ that pack carries `materials/`, `models/` and `particles/` and nothing else — 
 folders in `left4dead/`, which is exactly why a `pak01.vpk` listing is the wrong
 place to look for `GameMenu.res`.
 
+### Are the mounts real?
+
+`gameinfo.txt` lists what to mount; the boot log prints that list back whether or not
+a single one of those folders exists. That is why a partial download reads like a
+mounting bug — the file that names `hl2/` and `left4dead_dlc3/` is small and arrived
+fine, while the folders it points at are holes.
+
+```sh
+python3 -m l4d1ctl content --mounts --root /storage/emulated/0/srceng
+```
+
+```
+gameinfo: /storage/emulated/0/srceng/left4dead/gameinfo.txt
+
+  Game     |all_source_engine_paths|left4dead_dlc3  absent
+  Game     |gameinfo_path|.                         26 entries
+  Platform |all_source_engine_paths|platform        absent
+  Game     |all_source_engine_paths|hl2             absent
+```
+
+Exits non-zero and names the dead paths. `|gameinfo_path|` resolves to the game
+directory, `|all_source_engine_paths|` to its parent, and the count is top-level
+entries so an empty folder is distinguishable from a missing one.
+
 ### Did the copy lose anything?
 
 Moving a few GiB from a proot-distro rootfs, a PC or a USB stick onto `/storage/emulated/0`

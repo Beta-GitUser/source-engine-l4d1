@@ -486,6 +486,33 @@ def _print_trees(root: Path, json_output: bool = False) -> int:
     return 0
 
 
+def _print_mounts(root: Path) -> int:
+    gamedir = root if (root / "gameinfo.txt").is_file() else root / "left4dead"
+    rows = contentaudit.mounts(gamedir)
+    if not rows:
+        print(f"no SearchPaths block in {gamedir / 'gameinfo.txt'}", file=sys.stderr)
+        return 2
+
+    print(f"gameinfo: {gamedir / 'gameinfo.txt'}")
+    print()
+    width = max(len(row.raw) for row in rows)
+    dead = []
+    for row in rows:
+        print(f"  {row.kind.ljust(8)} {row.raw.ljust(width)}  {row.where()}")
+        if not row.exists:
+            dead.append(row)
+    print()
+    if not dead:
+        print("every mounted path is on disk.")
+        return 0
+    print(f"{len(dead)} of {len(rows)} mounted paths do not exist: "
+          + ", ".join(sorted({row.path.name for row in dead})))
+    print("The engine prints them in the boot log either way, so a dead mount is")
+    print("invisible there - it is a folder the download did not bring, not a")
+    print("mounting bug. See docs/L4D1/CONTENT.md for which depot has which folder.")
+    return 1
+
+
 def _print_compare(root: Path, source: Path) -> int:
     if not source.is_dir():
         print(f"no such directory: {source}", file=sys.stderr)
@@ -512,6 +539,9 @@ def cmd_content(args: argparse.Namespace) -> int:
 
     if args.compare:
         return _print_compare(root, Path(args.compare).expanduser())
+
+    if args.mounts:
+        return _print_mounts(root)
 
     findings = contentaudit.audit(root)
     if args.json:
@@ -1006,6 +1036,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trees", action="store_true",
                    help="where each top-level tree (resource/, shaders/, scripts/) lives, "
                         "or that it is missing from the content entirely")
+    p.add_argument("--mounts", action="store_true",
+                   help="what gameinfo.txt mounts, and whether each of those paths is on disk")
     p.add_argument("--compare", metavar="SOURCE",
                    help="check this copy against the tree it was copied from: list what "
                         "is missing or truncated here (files the engine writes are ignored)")

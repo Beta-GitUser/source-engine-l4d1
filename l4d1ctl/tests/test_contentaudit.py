@@ -408,3 +408,60 @@ class CompareTests(unittest.TestCase):
         (self.dst / "resource").mkdir()
         (self.dst / "resource" / "GameMenu.res").write_bytes(b"data")
         self.assertTrue(contentaudit.compare(self.dst, self.src).same)
+
+
+class MountTests(unittest.TestCase):
+    """A dead gameinfo mount looks exactly like a live one in the boot log.
+
+    The list of search paths comes from gameinfo.txt, which the download did bring,
+    so the engine prints `hl2/` and `left4dead_dlc3/` whether or not those folders
+    exist. That is the shape of a partial download, and it cost a day here.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="content-mounts-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, True))
+        self.game = self.dir / "left4dead"
+        self.game.mkdir()
+
+    def write_gameinfo(self, body):
+        (self.game / "gameinfo.txt").write_text(
+            "FileSystem\n{\n\tSearchPaths\n\t{\n" + body + "\t}\n}\n")
+
+    def rows(self):
+        return {row.raw: row for row in contentaudit.mounts(self.game)}
+
+    def test_gameinfo_path_resolves_to_the_game_directory(self):
+        self.write_gameinfo("\t\tGame\t|gameinfo_path|.\n")
+        row = self.rows()["|gameinfo_path|."]
+        self.assertEqual(row.path, self.game)
+        self.assertTrue(row.exists)
+        self.assertEqual(row.kind, "Game")
+
+    def test_all_source_engine_paths_resolves_beside_the_game_directory(self):
+        (self.dir / "platform").mkdir()
+        (self.dir / "platform" / "thing.dll").write_bytes(b"x")
+        self.write_gameinfo("\t\tPlatform\t|all_source_engine_paths|platform\n")
+        row = self.rows()["|all_source_engine_paths|platform"]
+        self.assertEqual(row.path, self.dir / "platform")
+        self.assertTrue(row.exists)
+        self.assertEqual(row.entries, 1)
+
+    def test_an_absent_sibling_is_reported_as_absent(self):
+        self.write_gameinfo("\t\tGame\t|all_source_engine_paths|hl2\n")
+        row = self.rows()["|all_source_engine_paths|hl2"]
+        self.assertFalse(row.exists)
+        self.assertEqual(row.where(), "absent")
+
+    def test_cli_mounts_exits_non_zero_and_names_the_dead_paths(self):
+        self.write_gameinfo("\t\tGame\t|gameinfo_path|.\n"
+                            "\t\tGame\t|all_source_engine_paths|hl2\n")
+        result = subprocess.run(
+            [sys.executable, "-m", "l4d1ctl", "content", "--mounts", "--root", str(self.game)],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("do not exist: hl2", result.stdout)
+        self.assertIn("invisible there", result.stdout)
+
+    def test_no_gameinfo_is_not_a_crash(self):
+        self.assertEqual(contentaudit.mounts(self.game), [])

@@ -23,6 +23,7 @@ engine warns and carries on, exactly as it does in nillerusr's tree
 anyway, because a *missing* file and an *unmounted* file look identical in the log.
 """
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -287,6 +288,82 @@ def summarise(findings: Sequence[AssetFinding]) -> dict:
         "ok": not missing,
         "findings": [f.to_dict() for f in findings],
     }
+
+
+@dataclass
+class MountRow:
+    """One line of `gameinfo.txt`'s SearchPaths, resolved against the disk."""
+
+    kind: str            # Game, Platform, GameBin, ...
+    raw: str             # exactly what gameinfo.txt says
+    path: Path
+    exists: bool
+    entries: int = 0     # top-level names, so an empty folder is distinguishable
+
+    def where(self) -> str:
+        if not self.exists:
+            return "absent"
+        return f"{self.entries} entries"
+
+
+def _search_path_block(text: str) -> List[str]:
+    """The lines inside the first SearchPaths { } block."""
+    start = text.find("SearchPaths")
+    if start < 0:
+        return []
+    brace = text.find("{", start)
+    if brace < 0:
+        return []
+    depth = 0
+    lines: List[str] = []
+    for offset in range(brace, len(text)):
+        char = text[offset]
+        if char == "{":
+            depth += 1
+            if depth == 1:
+                current = offset + 1
+            continue
+        if char == "}":
+            depth -= 1
+            if depth == 0:
+                lines.extend(text[current:offset].splitlines())
+                break
+    return [line.strip() for line in lines if line.strip()]
+
+
+def mounts(gamedir: Path) -> List[MountRow]:
+    """What gameinfo.txt mounts, and whether each of those paths is on disk.
+
+    The boot log prints every search path whether or not the folder exists, so a
+    dead mount is invisible there. It is also the exact shape of a partial download:
+    the engine happily lists `hl2/` and `left4dead_dlc3/` while both are a hole,
+    because the list comes from a file the download did provide.
+    """
+    gamedir = Path(gamedir).expanduser()
+    gameinfo = gamedir / "gameinfo.txt"
+    if not gameinfo.is_file():
+        return []
+
+    rows: List[MountRow] = []
+    for line in _search_path_block(gameinfo.read_text(errors="replace")):
+        parts = line.replace('"', "").split(None, 1)
+        if len(parts) != 2:
+            continue
+        kind, raw = parts[0], parts[1].strip().strip('"')
+        if raw.startswith("|gameinfo_path|"):
+            base, tail = gamedir, raw[len("|gameinfo_path|"):]
+        elif raw.startswith("|all_source_engine_paths|"):
+            base, tail = gamedir.parent, raw[len("|all_source_engine_paths|"):]
+        elif raw.startswith("|all_game_paths|"):
+            base, tail = gamedir, raw[len("|all_game_paths|"):]
+        else:
+            base, tail = gamedir, raw
+        resolved = Path(os.path.normpath(base / tail)) if tail else base
+        exists = resolved.is_dir()
+        entries = len(list(resolved.iterdir())) if exists else 0
+        rows.append(MountRow(kind=kind, raw=raw, path=resolved,
+                             exists=exists, entries=entries))
+    return rows
 
 
 # Files the engine and the port write while running. They exist on the device and
