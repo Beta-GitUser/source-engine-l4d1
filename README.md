@@ -93,6 +93,9 @@ Start here:
 
 - [`docs/L4D1/FEASIBILITY.md`](docs/L4D1/FEASIBILITY.md) - what works, what
   blocks, and the legal boundaries.
+- [`docs/L4D1/FONTS.md`](docs/L4D1/FONTS.md) - the seven stages between "scheme names
+  a font" and "a label draws text", which one is broken here, and the one command
+  that says so.
 - [`docs/L4D1/CONTENT.md`](docs/L4D1/CONTENT.md) - which Steam depot holds which
   folder (the short version: depot 501 is the Source base and the loose
   `resource/`, `scripts/`, `cfg/` trees, not "binaries"; 502 is assets; 504 is
@@ -136,7 +139,7 @@ On device, `launcher/android/main.cpp` reads `$APP_DATA_PATH/port.cfg`
 Tooling tests do not need the engine build:
 
 ```sh
-scripts/test-tooling.sh   # 468 python tests + 67 C++ checks
+scripts/test-tooling.sh   # 476 python tests + 67 C++ checks
 ```
 
 # Fork note

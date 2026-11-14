@@ -40,6 +40,15 @@ Consequences, in the order they surprise people:
   `l4d1ctl vpk info` reports it by comparing the numbering rather than only the
   chunks the tree references.
 
+### `hl2/` is the shader donor, not a playable game
+
+On this install the `hl2/` folder that 501 brings is not there to be played: it is
+where the engine's shared resources live, the shaders first among them. That is what
+makes the `Couldn't load vertex shader …_vs20` family in a boot log a *content*
+symptom rather than an engine one — `shaders/vsh|fxc/*.vcs` resolves through the `hl2`
+search path, so without 501's `hl2/` those lookups fail while every material still
+loads its texture fine. Deleting `hl2/` to save space breaks rendering, not maps.
+
 ### 501 is the Source base, which is why `hl2/` exists at all
 
 Extracting 501 answers a question the boot log raises every time: *why is the engine

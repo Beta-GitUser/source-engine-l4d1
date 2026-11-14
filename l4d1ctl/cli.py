@@ -30,8 +30,8 @@ import time
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from . import (depot, doctor, gameinfo, gamemod, launch, mine, mods, preflight,
-               contentaudit, sceneimage, selftest, steamid, steamlib,
+from . import (depot, doctor, fonts, gameinfo, gamemod, launch, mine, mods,
+               preflight, contentaudit, sceneimage, selftest, steamid, steamlib,
                surfaceprops, vpk)
 from .paths import PortPaths, resolve_gamedir
 
@@ -521,6 +521,34 @@ def _print_compare(root: Path, source: Path) -> int:
     for line in contentaudit.render_diff(diff):
         print(line)
     return 0 if diff.same else 1
+
+
+def cmd_fonts(args: argparse.Namespace) -> int:
+    root = Path(args.root).expanduser() if args.root else Path(resolve_gamedir())
+    if not root.is_dir():
+        print(f"no such directory: {root}", file=sys.stderr)
+        return 2
+
+    report = fonts.read(root)
+    if args.json:
+        print(json.dumps({
+            "scheme": str(report.scheme) if report.scheme else None,
+            "parsed": report.parsed,
+            "error": report.error,
+            "custom_font_files": report.custom_font_files,
+            "missing_files": report.missing_files,
+            "vfont_only": report.vfont_only,
+            "fonts": [{"key": f.key, "name": f.name, "custom": f.custom,
+                       "tall": f.tall, "weight": f.weight, "is_vfont": f.is_vfont}
+                      for f in report.fonts],
+        }, indent=2))
+        return 0 if report.parsed and not report.vfont_only else 1
+
+    for line in fonts.render(report):
+        print(line)
+    if not report.parsed:
+        return 2
+    return 1 if report.vfont_only else 0
 
 
 def cmd_content(args: argparse.Namespace) -> int:
@@ -1029,6 +1057,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="machine-readable `status`")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_module)
+
+    p = sub.add_parser("fonts", help="what the UI scheme's fonts are, and whether they can load")
+    p.add_argument("--root", help="game directory to read (default: the resolved one)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_fonts)
 
     p = sub.add_parser("content", help="check the content for assets the engine asks for at boot")
     p.add_argument("--root", help="game directory to scan (default: the resolved one)")

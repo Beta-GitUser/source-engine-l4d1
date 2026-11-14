@@ -37,6 +37,40 @@ Stages 1–4 are one-time, at scheme load; 5–6 are per control; 7 is per tap.
   the same rectangle, so a tap can land tens of pixels off — enough to miss a
   button while the cursor is visibly somewhere else.
 
+## The check that answers it without a build
+
+```sh
+python3 -m l4d1ctl fonts --root /storage/emulated/0/srceng/left4dead
+```
+
+```
+scheme: /storage/emulated/0/srceng/left4dead/resource/SourceScheme.res
+        3 font(s), 2 on .vfont (cannot load here), 1 on a system font name
+
+CustomFontFiles:
+  resource/HALFLIFE2.vfont
+  resource/hl2crosshairs.vfont
+
+Fonts:
+  Default      HALFLIFE2 (resource/HALFLIFE2.vfont)  (tall 16, weight 500)
+  DefaultBold  HALFLIFE2 (resource/HALFLIFE2.vfont)  (tall 16, weight 700)
+  DefaultSmall Verdana  (tall 19)
+```
+
+It exits non-zero when every font is a `.vfont`, because that verdict means no
+amount of fixing the read path (stage 3) can put text on screen. It also resolves
+the second way a scheme points at a custom font: L4D1 names the font `HALFLIFE2`
+rather than giving a `"custom"` path, and the file behind that name is
+`resource/HALFLIFE2.vfont`.
+
+Two outcomes, two projects:
+
+* **vfont-only** → either a `.vfont` reader in `CMatSystemSurface`'s font manager, or
+  a scheme override that names a TTF. The reader is fidelity; the override is
+  legibility today, at the price of L4D1's typeface.
+* **system names** → fontconfig answers, and the fix is the host-file read that is
+  already in this build.
+
 ## The checks, cheapest first
 
 On the device, before any rebuild:
