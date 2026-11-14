@@ -79,14 +79,15 @@ This fork targets Left 4 Dead 1 (appid 500). Status first, promises second:
 - **Playing L4D1** therefore means reimplementing the game on this engine.
   That is a large project; the roadmap says what it costs.
 
-Where the boot actually stands (last on-device run, engine `5e398ec`):
+Where the boot actually stands (last on-device run):
 
 - content mounts, the menu resource tree loads, the surface manifest resolves;
-- the process stops right after the audio driver module (`vaudio_minimp3`) is
-  loaded, before any movie is opened - there is no `CBinkMaterial::OpenMovie` line
-  in the log, so the Bink path has not been reached yet;
-- try `-novid` to take the movie out of the boot entirely before suspecting the
-  video module.
+- **the main menu opens** with `-nosound -novid`, which is Phase 1's exit criterion;
+- without those flags the process *hangs* (not crashes) right after the audio driver
+  module (`vaudio_minimp3`) loads, before any movie is opened - no
+  `CBinkMaterial::OpenMovie` line exists in that log, so Bink is not the blocker yet;
+- the menu itself is this engine's GameUI on L4D1's layouts, not an L4D1 menu: see
+  [`docs/L4D1/MENU.md`](docs/L4D1/MENU.md).
 
 Start here:
 

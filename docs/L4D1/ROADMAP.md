@@ -49,6 +49,10 @@ Work:
 Exit criterion: engine reaches the main menu loop and `map <name>` fails inside
 map/game-code init rather than in the file system.
 
+Status: **the menu loop is reached** with `-nosound -novid` (audio init blocks
+otherwise, see [MENU.md](MENU.md)). Remaining for the exit criterion: attempt a
+`map` and see it fail inside game-code init instead of the file system.
+
 ## Phase 2 — A walkable L4D1 map (sandbox game code) · started
 
 **2a (done, bootstrap).** `--build-games left4dead` compiles the HL2 game code
