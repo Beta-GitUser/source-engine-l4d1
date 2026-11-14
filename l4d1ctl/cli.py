@@ -510,6 +510,27 @@ def cmd_surface(args: argparse.Namespace) -> int:
         return 2
 
     report = surfaceprops.audit(root, max_surfaces=args.surfaces)
+
+    if args.stage:
+        if not report.found:
+            print("nothing to stage: no surface property manifest was found",
+                  file=sys.stderr)
+            return 2
+        game_dir = Path(args.stage).expanduser()
+        try:
+            actions = surfaceprops.stage(report, game_dir, force=args.force)
+        except (OSError, ValueError, vpk.VPKError) as error:
+            print(f"could not stage: {error}", file=sys.stderr)
+            return 1
+        for source, destination, action in actions:
+            print(f"{action:>7}  {source} -> {destination}")
+        # Report the state that now exists, not the one that prompted the copy.
+        report = surfaceprops.audit(root, max_surfaces=args.surfaces)
+        if not args.json:
+            print()
+            print(f"Now the engine reaches it through {game_dir / 'scripts'}:")
+            print()
+
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
     else:
@@ -945,6 +966,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", help="content root to inspect (default: the resolved one)")
     p.add_argument("--surfaces", type=int, default=12, metavar="N",
                    help="how many surface names to list per file (default 12, 0 for all)")
+    p.add_argument("--stage", metavar="GAMEDIR",
+                   help="copy the manifest and the files it names into GAMEDIR/scripts/"
+                        " so the engine can find them")
+    p.add_argument("--force", action="store_true",
+                   help="with --stage, overwrite files that are already there")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_surface)
 

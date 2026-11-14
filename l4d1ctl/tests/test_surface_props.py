@@ -259,6 +259,57 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(report.exit_code(), 2)
 
 
+class StageTests(unittest.TestCase):
+    """The fix the report recommends has to be one command, and it has to be safe."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.game = self.root / "left4dead"
+        self.game.mkdir()
+        self.foreign = self.root / "sourceengine" / "scripts"
+        self.foreign.mkdir(parents=True)
+        (self.foreign / "surfaceproperties_manifest.txt").write_bytes(MANIFEST_TEXT)
+        (self.foreign / "surfaceproperties_left4dead.txt").write_bytes(SURFACES_TEXT)
+
+    def test_staging_puts_the_chain_where_the_engine_looks(self):
+        report = surfaceprops.audit(self.root)
+        self.assertEqual(report.exit_code(), 1)
+        surfaceprops.stage(report, self.game)
+        self.assertEqual((self.game / "scripts" / "surfaceproperties_manifest.txt")
+                         .read_bytes(), MANIFEST_TEXT)
+        self.assertEqual((self.game / "scripts" / "surfaceproperties_left4dead.txt")
+                         .read_bytes(), SURFACES_TEXT)
+        self.assertEqual(surfaceprops.audit(self.root).exit_code(), 0)
+
+    def test_existing_files_are_kept_unless_forced(self):
+        (self.game / "scripts").mkdir()
+        existing = self.game / "scripts" / "surfaceproperties_left4dead.txt"
+        existing.write_bytes(b"mine")
+        actions = surfaceprops.stage(surfaceprops.audit(self.root), self.game)
+        self.assertIn("kept", [action for _source, _destination, action in actions])
+        self.assertEqual(existing.read_bytes(), b"mine")
+
+    def test_a_file_already_in_place_is_never_copied_onto_itself(self):
+        """With the chain already staged, the source and the destination are the
+        same file; rewriting it from its own bytes is a way to lose it."""
+        (self.game / "scripts").mkdir()
+        existing = self.game / "scripts" / "surfaceproperties_left4dead.txt"
+        existing.write_bytes(b"mine")
+        actions = surfaceprops.stage(surfaceprops.audit(self.root), self.game,
+                                     force=True)
+        self.assertEqual(existing.read_bytes(), b"mine")
+        self.assertIn("kept", [action for _source, _destination, action in actions])
+
+    def test_staging_with_nothing_found_is_an_error(self):
+        empty = self.root / "nothing-here"
+        empty.mkdir()
+        report = surfaceprops.audit(empty)
+        with self.assertRaises(ValueError):
+            surfaceprops.stage(report, self.game)
+
+
 class CommandTests(unittest.TestCase):
     def _run(self, *argv):
         return subprocess.run([sys.executable, "-m", "l4d1ctl", *argv],
@@ -286,6 +337,21 @@ class CommandTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn("no manifest", result.stdout)
 
+    def test_stage_copies_and_then_the_audit_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "left4dead").mkdir()
+            foreign = root / "sourceengine" / "scripts"
+            foreign.mkdir(parents=True)
+            (foreign / "surfaceproperties_manifest.txt").write_bytes(MANIFEST_TEXT)
+            (foreign / "surfaceproperties_left4dead.txt").write_bytes(SURFACES_TEXT)
+            result = self._run("surface", "--root", tmp, "--stage",
+                               str(root / "left4dead"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("copied", result.stdout)
+            after = self._run("surface", "--root", tmp)
+            self.assertEqual(after.returncode, 0, after.stdout + after.stderr)
+
     def test_a_missing_directory_is_an_error_not_a_traceback(self):
         result = self._run("surface", "--root", "/nonexistent-srceng")
         self.assertEqual(result.returncode, 2)
@@ -297,8 +363,8 @@ class StandaloneScriptTests(unittest.TestCase):
 
     SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "surface-manifest.py"
 
-    def _run(self, target):
-        return subprocess.run([sys.executable, str(self.SCRIPT), str(target)],
+    def _run(self, target, *extra):
+        return subprocess.run([sys.executable, str(self.SCRIPT), str(target), *extra],
                               capture_output=True, text=True)
 
     def _content(self, files):
@@ -365,6 +431,28 @@ class StandaloneScriptTests(unittest.TestCase):
                       result.stdout)
         self.assertIn("cannot see this file there", result.stdout)
         self.assertIn("mkdir -p left4dead/scripts", result.stdout)
+
+    def test_staging_on_the_device_script_works_and_is_idempotent(self):
+        handle = tempfile.TemporaryDirectory()
+        self.addCleanup(handle.cleanup)
+        root = Path(handle.name)
+        game = root / "left4dead"
+        game.mkdir()
+        foreign = root / "sourceengine" / "scripts"
+        foreign.mkdir(parents=True)
+        (foreign / "surfaceproperties_manifest.txt").write_bytes(MANIFEST_TEXT)
+        (foreign / "surfaceproperties_left4dead.txt").write_bytes(SURFACES_TEXT)
+
+        first = self._run(root, "--stage", game)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertIn("copied", first.stdout)
+        self.assertIn("resolves", first.stdout)
+
+        second = self._run(root, "--stage", game, "--force")
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertIn("kept", second.stdout)
+        self.assertEqual((game / "scripts" / "surfaceproperties_left4dead.txt")
+                         .read_bytes(), SURFACES_TEXT)
 
     def test_a_data_part_is_refused_with_the_name_of_the_index(self):
         """pak01_000.vpk is raw data; only the _dir.vpk has an index."""

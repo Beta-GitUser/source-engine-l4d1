@@ -214,6 +214,19 @@ what this needs into it:
 A file that resolves but cannot be seen is a failure, not a success: the exit code
 is 1, because the engine's load will still fail on it.
 
+`--stage GAMEDIR` does the copy the report asks for — the manifest and every file it
+names, into `GAMEDIR/scripts/`, keeping the layout below `scripts/`:
+
+```sh
+python3 pyscripts/surface-manifest.py /storage/emulated/0/srceng --stage /storage/emulated/0/srceng/left4dead
+python3 -m l4d1ctl surface --root /storage/emulated/0/srceng --stage ../left4dead
+```
+
+It prints `copied` or `kept` per file and then **re-reads the content**, so the
+verdict below it describes what is there now rather than what was there before the
+copy. Existing files are left alone unless `--force`, and a file that is already the
+destination is never copied onto itself — that is how a chain gets eaten.
+
 Both print what they actually read before saying anything about the manifest — one
 line per `*_dir.vpk` with its version, entry count and how many entries are under
 `scripts/`, and the loose file count:

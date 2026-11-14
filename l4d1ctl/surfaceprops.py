@@ -506,6 +506,49 @@ def audit(root: Path, *, max_surfaces: int = 0) -> Report:
 
 
 # ---------------------------------------------------------------------------
+# Making the engine able to see it
+# ---------------------------------------------------------------------------
+
+def _inside_scripts(name: str) -> str:
+    """The part of a path below its scripts/ folder, so the copy keeps the layout."""
+    parts = name.replace("\\", "/").split("/")
+    lowered = [part.lower() for part in parts]
+    if "scripts" in lowered:
+        return "/".join(parts[lowered.index("scripts") + 1:])
+    return parts[-1]
+
+
+def stage(report: Report, game_dir: Path, *, force: bool = False) -> List[tuple]:
+    """Copy the manifest and the files it names into ``<game_dir>/scripts/``.
+
+    The engine reaches a loose file only through its search paths, and the game
+    directory is the first of them. When the only copy of a surface property set
+    lives in a sibling folder - another game's content, an unpacked archive - this
+    puts it where the load will actually find it.
+    """
+    if report.chosen is None:
+        raise ValueError("nothing to stage: no manifest was found")
+
+    game_dir = Path(game_dir).expanduser()
+    destination_root = game_dir / "scripts"
+    actions: List[tuple] = []
+
+    for hit in [report.chosen] + [item.hit for item in report.files if item.hit]:
+        relative = _inside_scripts(hit.located if not hit.in_pack else hit.path)
+        destination = destination_root / relative
+        source = None if hit.in_pack else report.root / hit.located
+        already_there = source is not None and destination.exists() \
+            and source.resolve() == destination.resolve()
+        if already_there or (destination.exists() and not force):
+            actions.append((hit.located, destination, "kept"))
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(contentaudit.read_hit(report.root, hit))
+        actions.append((hit.located, destination, "copied"))
+    return actions
+
+
+# ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
 
@@ -575,8 +618,10 @@ def render(report: Report) -> str:
             if other is hit:
                 continue
             spelled = "" if other.path == hit.path else f" as {other.path}"
-            lines.append(f"           also: {_where(other, report.root)}{spelled}, "
-                         f"{other.size} bytes")
+            where = _where(other, report.root)
+            if not other.in_pack:
+                where = f"{where} at {other.located}"
+            lines.append(f"           also: {where}{spelled}, {other.size} bytes")
     else:
         lines.append(f"manifest:  {MANIFEST}")
         lines.append("           not in any loose directory or *_dir.vpk under this root")

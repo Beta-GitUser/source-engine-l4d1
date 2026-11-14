@@ -177,6 +177,15 @@ class Content:
                     found.append((name, "pack", pack.path.name, size))
         return found
 
+    def is_loose(self, name):
+        logical = self.logical(name).lower()
+        stored = self.loose.get(logical)
+        return stored is not None and stored[0] == self.logical(name)
+
+    def path_of(self, name):
+        stored = self.loose.get(self.logical(name).lower())
+        return stored[2] if stored else None
+
     def resolve(self, name):
         """(bytes, kind, where, spelling) or None.
 
@@ -434,35 +443,20 @@ def show(content, manifest_hits, chosen, data, kind, where, root_name, blocks,
                               "scripts/ — suspect the reader, not the content")
 
 
-def main(argv):
-    if len(argv) != 2:
-        print(__doc__.strip().splitlines()[2].strip(), file=sys.stderr)
-        print("usage: surface-manifest.py <content root | *_dir.vpk>", file=sys.stderr)
-        return 2
-
-    target = Path(argv[1]).expanduser()
-    if not target.exists():
-        print(f"no such file or directory: {target}", file=sys.stderr)
-        return 2
-
+def build_content(target):
+    """A Content for a root folder, or for the single pack the caller pointed at."""
     if target.is_file() and target.suffix.lower() == ".vpk":
-        if not target.stem.endswith("_dir"):
-            print(f"{target.name} is one data part of a multi-part pack; the file that "
-                  "names what is in it is "
-                  f"{target.name.rsplit('_', 1)[0]}_dir.vpk, in the same folder.",
-                  file=sys.stderr)
-            print(f"pass that instead, or pass the folder: surface-manifest.py "
-                  f"{target.parent}", file=sys.stderr)
-            return 2
-        # One pack: look inside it, and let anything outside it read as absent.
         root = target.parent
         content = Content(root)
         content.packs = [pack for pack in content.packs
                          if pack.path.resolve() == target.resolve()]
         content.loose = {}
-    else:
-        content = Content(target)
+        return content
+    return Content(target)
 
+
+def collect(content):
+    """Everything the report needs: where the manifest is, and what it names."""
     available = content.survey()
     manifest_hits = [(logical, kind, where, size) for logical, kind, where, size
                      in available if logical == MANIFEST]
@@ -510,51 +504,145 @@ def main(argv):
                           if parent.lower() not in defined})
         files[name] = (kind_of, where_of, size, names, missing)
 
-    show(content, manifest_hits, chosen, data, kind, where, root_name, blocks,
-         missing_brace, entries, bogus, siblings, files, available)
+    return {"available": available, "manifest_hits": manifest_hits, "chosen": chosen,
+            "data": data, "kind": kind, "where": where, "root_name": root_name,
+            "blocks": blocks, "missing_brace": missing_brace, "entries": entries,
+            "bogus": bogus, "siblings": siblings, "files": files}
+
+
+def main(argv):
+    stage_dir = None
+    force = False
+    positional = []
+    index = 1
+    while index < len(argv):
+        if argv[index] == "--stage":
+            index += 1
+            if index >= len(argv):
+                print("--stage needs a game directory", file=sys.stderr)
+                return 2
+            stage_dir = Path(argv[index]).expanduser()
+        elif argv[index] == "--force":
+            force = True
+        elif argv[index] in ("-h", "--help"):
+            print(__doc__.strip())
+            return 0
+        else:
+            positional.append(argv[index])
+        index += 1
+
+    if len(positional) != 1:
+        print(__doc__.strip().splitlines()[2].strip(), file=sys.stderr)
+        print("usage: surface-manifest.py <content root | *_dir.vpk> "
+              "[--stage GAMEDIR] [--force]", file=sys.stderr)
+        return 2
+
+    target = Path(positional[0]).expanduser()
+    if not target.exists():
+        print(f"no such file or directory: {target}", file=sys.stderr)
+        return 2
+
+    if target.is_file() and target.suffix.lower() == ".vpk":
+        if not target.stem.endswith("_dir"):
+            print(f"{target.name} is one data part of a multi-part pack; the file that "
+                  "names what is in it is "
+                  f"{target.name.rsplit('_', 1)[0]}_dir.vpk, in the same folder.",
+                  file=sys.stderr)
+            print(f"pass that instead, or pass the folder: surface-manifest.py "
+                  f"{target.parent}", file=sys.stderr)
+            return 2
+        # One pack: look inside it, and let anything outside it read as absent.
+        root = target.parent
+        content = Content(root)
+        content.packs = [pack for pack in content.packs
+                         if pack.path.resolve() == target.resolve()]
+        content.loose = {}
+    else:
+        content = Content(target)
+
+    state = collect(content)
+
+    if stage_dir is not None:
+        if state["chosen"] is None:
+            print("nothing to stage: no surface property manifest was found",
+                  file=sys.stderr)
+            return 2
+        sources = [(state["chosen"], state["data"])]
+        for entry_name in state["entries"]:
+            found = content.resolve(entry_name)
+            if found is not None:
+                sources.append((found[3], found[0]))
+        for source_name, blob in sources:
+            parts = source_name.replace("\\", "/").split("/")
+            lowered = [part.lower() for part in parts]
+            relative = ("/".join(parts[lowered.index("scripts") + 1:])
+                        if "scripts" in lowered else parts[-1])
+            destination = stage_dir / "scripts" / relative
+            same_file = content.is_loose(source_name) and destination.exists() and \
+                (content.path_of(source_name).resolve() == destination.resolve()
+                 if content.path_of(source_name) else False)
+            if same_file or (destination.exists() and not force):
+                print(f"kept    {source_name} -> {destination}")
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(blob)
+            print(f"copied  {source_name} -> {destination}")
+        print()
+        print(f"The engine reaches it through the game directory now: "
+              f"{stage_dir / 'scripts'}")
+        print("Re-reading the content with that in place:")
+        print()
+        content = build_content(target)
+        state = collect(content)
+
+    show(content, state["manifest_hits"], state["chosen"], state["data"],
+         state["kind"], state["where"], state["root_name"], state["blocks"],
+         state["missing_brace"], state["entries"], state["bogus"],
+         state["siblings"], state["files"], state["available"])
 
     print()
     problems = []
     hidden_in = None
-    if chosen is None:
+    if state["chosen"] is None:
         problems.append("the manifest is not in this content")
         code = 2
     else:
         code = 0
-        if not data:
+        if not state["data"]:
             problems.append("the manifest is 0 bytes: the engine cannot read it")
-            entries, bogus = [], []
-        if data and kind == "loose-case":
-            problems.append(f"it is spelled '{chosen}' as a loose file")
-        if data and kind in ("loose", "loose-case") and "/" in chosen:
-            folder = chosen.split("/")[0]
+            state["entries"], state["bogus"] = [], []
+        if state["data"] and state["kind"] == "loose-case":
+            problems.append(f"it is spelled '{state['chosen']}' as a loose file")
+        if (state["data"] and state["kind"] in ("loose", "loose-case")
+                and "/" in state["chosen"]):
+            folder = state["chosen"].split("/")[0]
             if folder.lower() not in SEARCHED:
                 hidden_in = folder
                 problems.append(f"it sits in '{folder}/', which is not a folder the "
                                 "engine searches, so it is invisible to the load")
-        if missing_brace:
+        if state["missing_brace"]:
             problems.append('no { after the first name: the engine loads nothing')
-        for name in bogus:
+        for name in state["bogus"]:
             problems.append(f"subkey '{name}' is not named 'file'")
-        if not entries and not missing_brace:
+        if not state["entries"] and not state["missing_brace"]:
             problems.append("no 'file' entries")
-        for name in entries:
-            if name not in files:
+        for name in state["entries"]:
+            if name not in state["files"]:
                 problems.append(f"'{name}' is named by the manifest but is not in "
                                 "the content")
-            elif not files[name][3]:
+            elif not state["files"][name][3]:
                 problems.append(f"'{name}' defines no surfaces")
-            for parent in files[name][4]:
+            for parent in state["files"][name][4]:
                 problems.append(f"'{name}' bases a surface on '{parent}', which is "
                                 "not defined")
         if problems:
             code = 1
 
     if not problems:
-        total = sum(len(item[3]) for item in files.values())
+        total = sum(len(item[3]) for item in state["files"].values())
         print("verdict: the manifest is there and the chain behind it resolves "
               f"({total} surface{'' if total == 1 else 's'})")
-    elif chosen is None:
+    elif state["chosen"] is None:
         print("verdict: no manifest in this content")
     else:
         print("verdict: the manifest is there but does not work as intended")
