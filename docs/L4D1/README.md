@@ -16,6 +16,7 @@ This folder is the working documentation for running **Left 4 Dead 1** (appid
 | [THIRDPARTY.md](THIRDPARTY.md) | Vendored code, its licences, the patch this fork carries to `sse2neon.h`, and the rule for adding the next one. |
 | [TESTING.md](TESTING.md) | How to test a download and a launch without Steam or content: `selftest`, `check`, `launch --run` and what each engine error means. |
 | [GAMECODE.md](GAMECODE.md) | The game module: how map hosting and walking work today via the HL2 bootstrap, what L4D entities get skipped and why that is safe, and how map intro cutscenes are built. |
+| [VIDEO.md](VIDEO.md) | What a `.bik` is, how the engine consumes it, why `libvideo_bink.so` is not in the artifact, and what building it against FFmpeg would cost. |
 
 ## Short version
 
