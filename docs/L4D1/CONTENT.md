@@ -41,6 +41,40 @@ Consequences, in the order they surprise people:
   `l4d1ctl vpk info` reports it by comparing the numbering rather than only the
   chunks the tree references.
 
+## The sibling folder: `left4dead_dlc3` is The Sacrifice
+
+L4D1's install is two content folders side by side inside `Left 4 Dead/`:
+
+```
+left4dead/          the base game — everything on this page so far
+left4dead_dlc3/     The Sacrifice (October 2010), with its own pak01.vpk
+```
+
+and the **stock** `gameinfo.txt` names both, in this order:
+
+```
+SearchPaths
+{
+    Game    left4dead_dlc3
+    Game    |gameinfo_path|.
+    Game    hl2
+}
+```
+
+That order is why a boot log lists `left4dead_dlc3/` *before* `left4dead/`: the DLC
+overrides the base game, which is how a DLC ships a changed map without editing the
+base depot. Nothing else mounts it — no code path adds it, no content scan finds it.
+If the folder is not there, the entry is a dead search path and the engine silently
+searches a hole, which is invisible in the log because the path is still printed.
+
+So when copying content, `left4dead_dlc3/` goes **beside** `left4dead/`, not inside
+it, and its absence is not fatal: the base menu loads, the campaign list just has no
+Sacrifice.
+
+Not to be confused with: **The Passing is L4D2's content** (`left4dead2_dlc1`). It
+was never part of L4D1 — fan ports of it exist, which is what makes the mix-up easy.
+A `left4dead_dlc3/` that does not contain The Passing is behaving correctly.
+
 ## The check, before blaming the engine
 
 ```sh
