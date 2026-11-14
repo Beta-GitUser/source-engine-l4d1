@@ -18,6 +18,7 @@ ILauncherMgr *g_pLauncherMgr = NULL;
 #endif
 
 
+#include <errno.h>
 #include <stdio.h>
 
 #include "tier1/strtools.h"
@@ -1952,7 +1953,13 @@ static bool ReadFontFileDirect( const char *pchPath, CUtlBuffer &buf )
 {
 	FILE *fp = fopen( pchPath, "rb" );
 	if ( !fp )
+	{
+		// Say why, not just that: a read that fails here is a permission or a stale
+		// path, and the difference has never been visible from the log.
+		Msg( "Could not open font file '%s': errno %d (%s)\n",
+			 pchPath, errno, strerror( errno ) );
 		return false;
+	}
 
 	fseek( fp, 0, SEEK_END );
 	long len = ftell( fp );
