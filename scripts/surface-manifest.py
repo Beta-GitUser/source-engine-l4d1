@@ -215,6 +215,54 @@ class Content:
 # KeyValues, read the way the engine reads it
 # ---------------------------------------------------------------------------
 
+SEARCH_PATH_FOLDERS = ("left4dead_dlc3", "left4dead", "hl2", "platform")
+
+
+def search_path_rows(content):
+    """What each folder gameinfo.txt mounts actually holds under scripts/."""
+    root = content.root
+    rows = []
+    for folder in SEARCH_PATH_FOLDERS:
+        base = root / folder
+        if not base.is_dir() and root.name.lower() == folder:
+            base = root
+        if not base.is_dir():
+            rows.append((folder + "/", "absent"))
+            continue
+
+        scripts = base / "scripts"
+        loose = sorted(entry.name for entry in scripts.rglob("*") if entry.is_file()) \
+            if scripts.is_dir() else []
+        surfaces = [name for name in loose
+                    if name.lower().startswith("surfaceproperties")]
+        pack_surfaces = []
+        for pack in content.packs:
+            try:
+                inside = pack.path.parent == base
+            except AttributeError:
+                inside = False
+            if not inside:
+                continue
+            hits = [name for name, _size in pack.items()
+                    if name.lower().startswith("scripts/surfaceproperties")]
+            if hits:
+                pack_surfaces.append((pack.path.name, hits))
+
+        if surfaces:
+            rows.append((folder + "/",
+                         f"scripts/ has {len(loose)} files, incl. " + ", ".join(surfaces[:3])))
+        elif pack_surfaces:
+            rows.append((folder + "/",
+                         f"no loose surface file, but {pack_surfaces[0][0]} has "
+                         f"{pack_surfaces[0][1][0]}"))
+        elif loose:
+            rows.append((folder + "/",
+                         f"scripts/ has {len(loose)} files, none named surfaceproperties*"))
+        else:
+            rows.append((folder + "/", "no scripts/ at all"))
+    return rows
+
+
 def tokens(text):
     index = 0
     length = len(text)
@@ -364,6 +412,13 @@ def show(content, manifest_hits, chosen, data, kind, where, root_name, blocks,
         if kind == "loose-case":
             print("           a loose file keeps its own case; inside a pack it would "
                   "not matter")
+
+    rows = search_path_rows(content)
+    if any(described != "absent" for _folder, described in rows):
+        print()
+        print("search paths, in the order gameinfo.txt mounts them:")
+        for folder, described in rows:
+            print(f"  {folder:<17} {described}")
 
     if chosen is not None:
         print()

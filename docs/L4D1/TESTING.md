@@ -236,6 +236,27 @@ pack:      left4dead/pak01_dir.vpk — vpk v1, 30124 entries, 96 under scripts/
 loose:     1421 files
 ```
 
+### Which folder the engine actually searches
+
+`gameinfo.txt` mounts a list, not a directory: `left4dead_dlc3`, the game directory
+itself and `hl2` as `Game` paths, plus `platform`, which the engine adds itself. A
+surface file in any other folder — the GMod tree, an unpacked archive — is invisible
+however present it is. So both tools print that list, with what each folder holds
+under `scripts/`:
+
+```
+search paths, in the order gameinfo.txt mounts them:
+  left4dead_dlc3/   absent
+  left4dead/        scripts/ has 1 files, incl. surfaceproperties.txt
+  hl2/              no scripts/ at all
+  platform/         absent
+```
+
+That is also the answer to "could `hl2`'s copy do instead": if the row for `hl2/`
+names a `surfaceproperties*` file, the engine can load it from there and nothing
+needs staging; if it says `no scripts/ at all`, hl2 contributes nothing to this
+question no matter what its install contains.
+
 A `0 entries` there means the reader could not get into the index, not that the pack
 is empty. And when no `scripts/surfaceproperties*` shows up at all, they search the
 dir file's raw bytes for the name, which does not trust the index: names live in the

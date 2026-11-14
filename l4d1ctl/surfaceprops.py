@@ -214,12 +214,20 @@ def list_surface_files(root: Path) -> List[contentaudit.Hit]:
     if not root.is_dir():
         return found
 
-    prefix = "scripts/surfaceproperties"
+    def under_scripts(path: str) -> bool:
+        # "scripts/surfaceproperties.txt" when the root *is* the game directory,
+        # "left4dead/scripts/surfaceproperties.txt" when it is the folder that
+        # holds it. Both are the same file to the engine, which searches the game
+        # directory, so both count here.
+        parts = path.lower().split("/")
+        return (len(parts) >= 2 and parts[-2] == "scripts"
+                and parts[-1].startswith("surfaceproperties"))
+
     for candidate in sorted(root.rglob("*")):
         if not candidate.is_file() or candidate.suffix.lower() == ".vpk":
             continue
         relative = candidate.relative_to(root).as_posix()
-        if relative.lower().startswith(prefix):
+        if under_scripts(relative):
             found.append(contentaudit.Hit(path=relative, source="loose",
                                           exact=True,
                                           size=candidate.stat().st_size))
@@ -229,7 +237,7 @@ def list_surface_files(root: Path) -> List[contentaudit.Hit]:
         except vpk.VPKError:
             continue
         for entry in archive:
-            if entry.path.lower().startswith(prefix):
+            if under_scripts(entry.path):
                 found.append(contentaudit.Hit(path=entry.path,
                                               source=directory_vpk.name,
                                               exact=True, size=entry.size,
@@ -456,8 +464,13 @@ def audit(root: Path, *, max_surfaces: int = 0) -> Report:
     if ordered:
         report.chosen = ordered[0]
 
-    report.fallbacks_present = [hit for hit in report.available
-                                if hit.path.lower() in {f.lower() for f in FALLBACKS}]
+    # A hit may carry its search-path folder ("left4dead/scripts/…"); the engine
+    # asks for the tail, so the tail is what is matched.
+    fallbacks = {name.lower() for name in FALLBACKS}
+    report.fallbacks_present = [
+        hit for hit in report.available
+        if hit.path.lower() in fallbacks
+        or any(hit.path.lower().endswith("/" + name) for name in fallbacks)]
 
     if report.chosen is not None:
         try:
@@ -564,6 +577,76 @@ def _where(hit: contentaudit.Hit, root: Path) -> str:
 SEARCHED_FOLDERS = ("scripts", "left4dead", "left4dead_dlc3", "hl2", "platform")
 
 
+def _scripts_in(folder: Path):
+    """(loose names, [(pack, names)]) for everything under a folder's scripts/."""
+    loose: List[str] = []
+    scripts = folder / "scripts"
+    if scripts.is_dir():
+        loose = sorted(entry.name for entry in scripts.rglob("*") if entry.is_file())
+
+    packs = []
+    for directory_vpk in sorted(folder.glob("*_dir.vpk")):
+        try:
+            archive = vpk.VPK(directory_vpk)
+        except vpk.VPKError:
+            continue
+        names = sorted(entry.path for entry in archive
+                       if entry.path.lower().startswith("scripts/"))
+        if names:
+            packs.append((directory_vpk.name, names))
+    return loose, packs
+
+
+def _surface_names(names: Sequence[str]) -> List[str]:
+    return [name for name in names if name.lower().split("/")[-1].startswith("surfaceproperties")]
+
+
+def search_paths(root: Path) -> List[tuple]:
+    """What each folder the engine searches actually holds under scripts/.
+
+    ``gameinfo.txt`` mounts ``left4dead_dlc3``, the game directory itself and
+    ``hl2``, and the engine also searches ``platform``, in that order. A surface
+    file that is not in one of them is invisible to the engine however present it
+    is on disk - which is why "the content has it" and "the engine found it" are
+    different questions.
+    """
+    root = Path(root)
+    rows: List[tuple] = []
+    for folder in ("left4dead_dlc3", "left4dead", "hl2", "platform"):
+        candidate = root / folder
+        if not candidate.is_dir() and root.name.lower() == folder:
+            candidate = root
+        if not candidate.is_dir():
+            rows.append((folder + "/", "absent", ""))
+            continue
+
+        loose, packs = _scripts_in(candidate)
+        loose_surfaces = _surface_names(loose)
+        pack_surfaces = [(pack, names) for pack, names in
+                         ((pack, _surface_names(names)) for pack, names in packs) if names]
+
+        if loose_surfaces:
+            described = (f"scripts/ has {len(loose)} files, incl. "
+                         + ", ".join(loose_surfaces[:3]))
+            where = ""
+        elif pack_surfaces:
+            described = "no loose surface file"
+            pack, names = pack_surfaces[0]
+            where = f"{pack}: {names[0]}"
+        elif loose:
+            described = (f"scripts/ has {len(loose)} files, none named "
+                         "surfaceproperties*")
+            where = ""
+        elif packs:
+            described = "scripts/ lives only in " + ", ".join(pack for pack, _ in packs[:2])
+            where = ""
+        else:
+            described = "no scripts/ at all"
+            where = ""
+        rows.append((folder + "/", described, where))
+    return rows
+
+
 def _outside_search_path(hit: contentaudit.Hit) -> str:
     """The folder that hides this file from the engine, or "" if it is reachable.
 
@@ -631,6 +714,15 @@ def render(report: Report) -> str:
     if report.error:
         lines.append(f"           read failed: {report.error}")
 
+    paths = search_paths(report.root)
+    if any(described != "absent" for _, described, _ in paths):
+        lines.append("")
+        lines.append("search paths, in the order gameinfo.txt mounts them:")
+        for folder, described, where in paths:
+            lines.append(f"  {folder:<17} {described}")
+            if where:
+                lines.append(f"  {'':<17} in {where}")
+
     if report.found and report.data:
         document = report.document or Document(root_name="", children=[])
         openable = "openable, non-empty" if report.loadable else "NOT readable"
@@ -682,7 +774,10 @@ def render(report: Report) -> str:
             lines.append("This branch falls back to the first of these it can read, "
                          "so the game keeps booting:")
             for name in FALLBACKS:
+                # A hit may carry its search-path folder ("left4dead/scripts/…");
+                # the engine asks for the tail, so the tail is what is compared.
                 present = any(hit.path.lower() == name.lower()
+                              or hit.path.lower().endswith("/" + name.lower())
                               for hit in report.available)
                 lines.append(f"  {'yes' if present else 'no ':>3}  {name}")
         else:

@@ -259,6 +259,62 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(report.exit_code(), 2)
 
 
+class SearchPathTests(unittest.TestCase):
+    """Which folder the engine searches actually holds the file.
+
+    gameinfo.txt mounts left4dead_dlc3, the game directory, hl2 and - through the
+    engine - platform. A surface file anywhere else is invisible, so the report has
+    to say where each of those folders stands rather than only what is on disk.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.game = self.root / "left4dead"
+        (self.game / "scripts").mkdir(parents=True)
+
+    def _rows(self):
+        return {folder: (described, where)
+                for folder, described, where in surfaceprops.search_paths(self.root)}
+
+    def test_a_surface_file_inside_the_game_folder_counts(self):
+        """The common shape: the root is the parent of left4dead/, not left4dead/."""
+        (self.game / "scripts" / "surfaceproperties.txt").write_bytes(SURFACES_TEXT)
+        report = surfaceprops.audit(self.root)
+        self.assertEqual([hit.path for hit in report.available],
+                         ["left4dead/scripts/surfaceproperties.txt"])
+        self.assertEqual([hit.path for hit in report.fallbacks_present],
+                         ["left4dead/scripts/surfaceproperties.txt"])
+        self.assertIn("yes  scripts/surfaceproperties.txt", surfaceprops.render(report))
+
+    def test_an_absent_folder_is_reported_as_absent(self):
+        rows = self._rows()
+        self.assertEqual(rows["left4dead_dlc3/"][0], "absent")
+        self.assertEqual(rows["hl2/"][0], "absent")
+
+    def test_a_folder_with_scripts_but_no_surface_file_says_so(self):
+        (self.game / "scripts" / "vehicles").mkdir()
+        (self.game / "scripts" / "vehicles" / "jeep.txt").write_bytes(b"x")
+        described, where = self._rows()["left4dead/"]
+        self.assertIn("none named surfaceproperties", described)
+        self.assertEqual(where, "")
+
+    def test_the_hl2_folder_is_named_when_it_is_the_one_that_has_it(self):
+        hl2 = self.root / "hl2" / "scripts"
+        hl2.mkdir(parents=True)
+        (hl2 / "surfaceproperties.txt").write_bytes(SURFACES_TEXT)
+        described, _ = self._rows()["hl2/"]
+        self.assertIn("surfaceproperties.txt", described)
+        self.assertIn("hl2/", surfaceprops.render(surfaceprops.audit(self.root)))
+
+    def test_a_game_directory_passed_as_the_root_still_reads_as_itself(self):
+        (self.game / "scripts" / "surfaceproperties.txt").write_bytes(SURFACES_TEXT)
+        rows = {folder: described for folder, described, _ in
+                surfaceprops.search_paths(self.game)}
+        self.assertIn("surfaceproperties.txt", rows["left4dead/"])
+
+
 class StageTests(unittest.TestCase):
     """The fix the report recommends has to be one command, and it has to be safe."""
 
