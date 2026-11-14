@@ -946,13 +946,13 @@ void CBinkMaterial::OpenMovie( const char *theMovieFileName )
 		/* allocate image where the decoded image will be put */
 		m_VideoFrameWidth = m_AVVideoDecCtx->width;
 		m_VideoFrameHeight = m_AVVideoDecCtx->height;
-		m_AVPixFormat = m_AVVideoDecCtx->pix_fmt;
+		m_AVPixFormat = (AVPixelFormat)m_AVVideoDecCtx->pix_fmt;
 		size_t size = av_image_alloc(m_AVVideoData, m_AVVideoLinesize,
 							m_VideoFrameWidth, m_VideoFrameHeight, m_AVPixFormat, 1);
 
 		m_RGBData = calloc( m_VideoFrameWidth*m_VideoFrameHeight*3, 1 );
 
-		printf("m_AVVideoData size = %zu\nm_VideoFrameWidth=%d\nm_VideoFrameHeight=%d\n", size, m_VideoFrameWidth, m_VideoFrameHeight);
+		Msg("m_AVVideoData size = %zu, %dx%d\n", size, m_VideoFrameWidth, m_VideoFrameHeight);
 
 		if (size < 0)
 		{

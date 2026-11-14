@@ -3,8 +3,6 @@
 
 #include "yuv_rgb.h"
 
-#include <emmintrin.h>
-
 #ifdef _MSC_VER
 // MSVC does not have __SSE2__ macro
   #if (defined(_M_AMD64) || defined(_M_X64) || (_M_IX86_FP == 2))
@@ -16,6 +14,16 @@
     #define _YUVRGB_SSE2_
   #endif // __SSE2__
 #endif // _MSC_VER
+
+// Modifications in this fork (2026-11): upstream includes <emmintrin.h>
+// unconditionally at the top, which does not exist on aarch64 - the Android build
+// died with "emmintrin.h: No such file or directory" before compiling anything of
+// this file. The include now sits behind the same _YUVRGB_SSE2_ test that guards
+// every use of the intrinsics below it, so ARM and any other architecture build
+// the scalar path in this file and x86 keeps the vectorised one.
+#ifdef _YUVRGB_SSE2_
+  #include <emmintrin.h>
+#endif
 
 uint8_t clamp(int16_t value)
 {

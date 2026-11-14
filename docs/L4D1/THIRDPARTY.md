@@ -7,6 +7,7 @@ different hat. This file is the record.
 
 | Component | Upstream | Licence | Local changes | Guarded by |
 | --- | --- | --- | --- | --- |
+| `video/video_bink/yuv_rgb.c` | Adrien Descamps, [yuv2rgb](https://github.com/descampsa/yuv2rgb) | BSD-3-Clause (text at the top of the file) | `<emmintrin.h>` included only when `_YUVRGB_SSE2_` is defined: upstream includes it unconditionally, and aarch64 has no such header (the Android build stopped there) | the build itself — every non-x86 target fails without it |
 | `common/sse2neon.h` | [DLTcollab/sse2neon](https://github.com/DLTcollab/sse2neon) | MIT (text at the top of the file) | `float64x2_t` reinterpret intrinsics defined for GCC 4.9 | `l4d1ctl/tests/test_sse2neon.py` |
 | `waflib/` (inside `waf`) | [waf](https://gitlab.com/ita1024/waf) 2.0.26 | BSD-3-Clause | none; the `waf` script carries it embedded | — |
 | `scripts/waifulib/` | this fork (nillerusr's tree) | as the repository | maintained here, not vendored | `scripts/test-tooling.sh` |
