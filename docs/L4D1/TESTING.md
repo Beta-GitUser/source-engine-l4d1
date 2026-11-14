@@ -77,6 +77,26 @@ for the file by name inside the same content root the audit just read. If a tree
 present but the log still cannot find a file in it, that is a mounting or spelling
 question and `find` is the tool for it (see below).
 
+### Reading a pack listing on Windows
+
+`vpkeditcli` is the usual way to ask "does this pack contain `resource/`?" from a
+Windows machine. Two traps, both Windows-side, neither about the pack:
+
+* **A redirect that produces an empty file** means the tool writes its listing to
+  stderr, not stdout (Qt's logging does by default). Capture both streams:
+  `vpkeditcli ... > list.txt 2>&1` in cmd, or `vpkeditcli ... 2>&1 | Out-File -Encoding utf8 list.txt`
+  in PowerShell.
+* **A file that opens as garbage or blank lines** is PowerShell 5.1's `>` writing
+  UTF-16LE. `Out-File -Encoding utf8` avoids it; cmd's `>` has no such problem.
+
+No file is needed to answer the question, though — filter instead of redirecting:
+
+```bat
+vpkeditcli ... | findstr /i "resource/ shaders/ scripts/"
+```
+
+That prints only the three trees in question, which is the whole comparison.
+
 Two sources feed `shaders/`, and both are content: at runtime the engine opens
 `shaders/vsh/<name>.vcs` and, failing that, `shaders/fxc/<name>.vcs`
 (`materialsystem/shaderapidx9/vertexshaderdx8.cpp`, `OpenFileAndLoadHeader`). When
