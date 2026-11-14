@@ -26,8 +26,9 @@ class ListTests(unittest.TestCase):
         self.game = self.root / "left4dead"
         self.game.mkdir()
 
-    def build(self, files, split=False):
-        return vpk.build_vpk_v1(self.game / "pak01_dir.vpk", files, split=split)
+    def build(self, files, split=False, version=1):
+        builder = vpk.build_vpk_v2 if version == 2 else vpk.build_vpk_v1
+        return builder(self.game / "pak01_dir.vpk", files, split=split)
 
     def run_script(self, *argv):
         return subprocess.run([sys.executable, str(SCRIPT), *map(str, argv)],
@@ -91,6 +92,18 @@ class ListTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["entries"], 2)
         self.assertEqual(payload["folders"]["scripts"], 1)
+
+    def test_a_version_2_pack_lists_all_of_its_entries(self):
+        """Regression: reading tree_size from after the v2 header truncated the
+        index, which is what made six real packs look like they had no scripts/."""
+        self.build({f"scripts/s{i}.txt": b"x" for i in range(30)}
+                   | {"materials/a.vmt": b"y"}, version=2)
+        folders = self.run_script(self.game / "pak01_dir.vpk", "--folders")
+        self.assertEqual(folders.returncode, 0, folders.stdout + folders.stderr)
+        self.assertIn("30  scripts", folders.stdout)
+        self.assertIn("1  materials", folders.stdout)
+        summary = self.run_script(self.game / "pak01_dir.vpk")
+        self.assertIn("entries:    31", summary.stdout)
 
     def test_a_data_part_is_refused_by_name(self):
         self.build({"materials/a.vmt": b"x"}, split=True)

@@ -212,6 +212,40 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(report.packs[0].entries, 0)
         self.assertIn("could not read this pack", surfaceprops.render(report))
 
+    def test_a_loose_manifest_outside_the_search_paths_is_named_and_flagged(self):
+        """Finding a file is not the same as the engine being able to see it."""
+        foreign = self.root / "garrysmod" / "scripts"
+        foreign.mkdir(parents=True)
+        (foreign / "surfaceproperties_manifest.txt").write_bytes(MANIFEST_TEXT)
+        (foreign / "surfaceproperties_left4dead.txt").write_bytes(SURFACES_TEXT)
+        report = surfaceprops.audit(self.root)
+        self.assertTrue(report.found)
+        self.assertEqual(report.chosen.located,
+                         "garrysmod/scripts/surfaceproperties_manifest.txt")
+        text = surfaceprops.render(report)
+        self.assertIn("garrysmod/scripts/surfaceproperties_manifest.txt", text)
+        self.assertIn("cannot see this file there", text)
+
+    def test_a_manifest_inside_the_game_directory_is_not_flagged(self):
+        scripts = self.game / "scripts"
+        scripts.mkdir()
+        (scripts / "surfaceproperties_manifest.txt").write_bytes(MANIFEST_TEXT)
+        (scripts / "surfaceproperties_left4dead.txt").write_bytes(SURFACES_TEXT)
+        text = surfaceprops.render(surfaceprops.audit(self.root))
+        self.assertIn("left4dead/scripts/surfaceproperties_manifest.txt", text)
+        self.assertNotIn("cannot see this file there", text)
+
+    def test_a_version_2_pack_is_read_with_all_its_scripts(self):
+        """The truncation bug lived in the standalone readers; the package is pinned
+        here so the two cannot drift apart again."""
+        vpk.build_vpk_v2(self.game / "pak01_dir.vpk",
+                         {MANIFEST: MANIFEST_TEXT, SURFACES: SURFACES_TEXT,
+                          **{f"scripts/s{i}.txt": b"x" for i in range(20)}})
+        report = surfaceprops.audit(self.root)
+        self.assertEqual(report.packs[0].entries, 22)
+        self.assertEqual(report.packs[0].under_scripts, 22)
+        self.assertEqual(report.exit_code(), 0, report.problems)
+
     def test_the_report_survives_a_pack_that_is_not_a_pack(self):
         (self.game / "pak01_dir.vpk").write_bytes(b"not a vpk at all")
         report = surfaceprops.audit(self.root)
@@ -301,6 +335,28 @@ class StandaloneScriptTests(unittest.TestCase):
         result = self._run(root)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("0 bytes", result.stdout)
+
+    def test_a_version_2_pack_is_read_in_full(self):
+        root = self._content({"scripts/surfaceproperties_manifest.txt": MANIFEST_TEXT,
+                              SURFACES: SURFACES_TEXT})
+        vpk.build_vpk_v2(root / "left4dead" / "pak01_dir.vpk",
+                         {MANIFEST: MANIFEST_TEXT, SURFACES: SURFACES_TEXT})
+        result = self._run(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("vpk v2", result.stdout)
+        self.assertIn("3 surfaces", result.stdout)
+
+    def test_a_loose_manifest_outside_the_search_path_is_flagged(self):
+        handle = tempfile.TemporaryDirectory()
+        self.addCleanup(handle.cleanup)
+        foreign = Path(handle.name) / "garrysmod" / "scripts"
+        foreign.mkdir(parents=True)
+        (foreign / "surfaceproperties_manifest.txt").write_bytes(MANIFEST_TEXT)
+        (foreign / "surfaceproperties_left4dead.txt").write_bytes(SURFACES_TEXT)
+        result = self._run(Path(handle.name))
+        self.assertIn("garrysmod/scripts/surfaceproperties_manifest.txt",
+                      result.stdout)
+        self.assertIn("cannot see this file there", result.stdout)
 
     def test_a_data_part_is_refused_with_the_name_of_the_index(self):
         """pak01_000.vpk is raw data; only the _dir.vpk has an index."""

@@ -32,11 +32,11 @@ def read_vpk_entry(vpk_path, wanted=IMAGE):
     magic, version = struct.unpack_from("<II", blob, 0)
     if magic != 0x55AA1234:
         raise SystemExit(f"{vpk_path.name}: not a VPK (signature 0x{magic:08x})")
-    pos = 8
-    if version == 2:
-        pos += 20                      # tree size, file data, 3 md5/signature sizes
-    tree_size = struct.unpack_from("<I", blob, pos)[0]
-    pos += 4
+    # tree_size is at offset 8 in both layouts; a version 2 header is simply longer
+    # (file data size, archive md5 size, other md5 size, signature size), so the
+    # tree starts at 28 instead of 12.
+    (tree_size,) = struct.unpack_from("<I", blob, 8)
+    pos = 28 if version == 2 else 12
     end = pos + tree_size
 
     def cstr(at):

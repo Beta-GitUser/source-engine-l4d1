@@ -119,6 +119,11 @@ class Hit:
     exact: bool          # same case as the caller asked for
     size: int = 0
     container: Optional[Path] = None    # the pack it came from, if any
+    located: str = ""        # where it really is, relative to the root
+
+    def __post_init__(self) -> None:
+        if not self.located:
+            self.located = self.path
 
     @property
     def in_pack(self) -> bool:
@@ -126,7 +131,8 @@ class Hit:
 
     def to_dict(self) -> dict:
         return {"path": self.path, "source": self.source, "exact": self.exact,
-                "size": self.size, "in_pack": self.in_pack}
+                "size": self.size, "in_pack": self.in_pack,
+                "located": self.located}
 
 
 def find(root: Path, wanted: str) -> List[Hit]:
@@ -144,10 +150,10 @@ def find(root: Path, wanted: str) -> List[Hit]:
         return hits
 
     def consider(name: str, source: str, size: int = 0,
-                 container: Optional[Path] = None) -> None:
+                 container: Optional[Path] = None, located: str = "") -> None:
         if name.lower() == normalized.lower():
             hits.append(Hit(path=name, source=source, exact=name == normalized,
-                            size=size, container=container))
+                            size=size, container=container, located=located))
 
     for candidate in sorted(root.rglob("*")):
         if not candidate.is_file():
@@ -156,10 +162,12 @@ def find(root: Path, wanted: str) -> List[Hit]:
             continue
         relative = candidate.relative_to(root).as_posix()
         size = candidate.stat().st_size
-        consider(relative, "loose", size)
+        consider(relative, "loose", size, located=relative)
         _, separator, stripped = relative.partition("/")
         if separator:
-            consider(stripped, "loose", size)
+            # The engine sees paths relative to a game directory, so scripts/x.txt
+            # inside left4dead/ is the same file as left4dead/scripts/x.txt here.
+            consider(stripped, "loose", size, located=relative)
 
     for directory_vpk in sorted(root.rglob("*_dir.vpk")):
         try:
@@ -167,7 +175,8 @@ def find(root: Path, wanted: str) -> List[Hit]:
         except vpk.VPKError:
             continue
         for entry in archive:
-            consider(entry.path, directory_vpk.name, entry.size, directory_vpk)
+            consider(entry.path, directory_vpk.name, entry.size, directory_vpk,
+                     located=f"{directory_vpk.name}:{entry.path}")
 
     return hits
 
@@ -178,8 +187,8 @@ def read_hit(root: Path, hit: "Hit") -> bytes:
     if hit.source == "loose":
         # The recorded path may be relative to the root or to a game directory
         # under it (left4dead/scripts/... versus scripts/...), so try both.
-        trimmed = hit.path.split("/", 1)[-1]
-        candidates = [root / hit.path, root / trimmed]
+        trimmed = hit.located.split("/", 1)[-1]
+        candidates = [root / hit.located, root / trimmed]
         for child in sorted(path for path in root.iterdir() if path.is_dir()):
             candidates.extend([child / hit.path, child / trimmed])
         for candidate in candidates:

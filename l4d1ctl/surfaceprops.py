@@ -508,11 +508,28 @@ def audit(root: Path, *, max_surfaces: int = 0) -> Report:
 
 def _where(hit: contentaudit.Hit, root: Path) -> str:
     if not hit.in_pack:
-        return "a loose file"
+        return "a loose file"   # callers that want the location use hit.located
     try:
         return f"in {hit.container.relative_to(root).as_posix()}"
     except (ValueError, AttributeError):
         return f"in {hit.source}"
+
+
+SEARCHED_FOLDERS = ("scripts", "left4dead", "left4dead_dlc3", "hl2", "platform")
+
+
+def _search_path_note(hit: contentaudit.Hit) -> str:
+    """A loose file is only visible where the engine looks, and that is not everywhere."""
+    if hit.in_pack:
+        return ""
+    parts = hit.located.split("/")
+    if len(parts) < 2:
+        return ""
+    folder = parts[0].lower()
+    if folder in SEARCHED_FOLDERS:
+        return ""
+    return (f"note: '{parts[0]}/' is not one of the folders the engine searches "
+            "(left4dead/, hl2/, platform/), so it cannot see this file there")
 
 
 def render(report: Report) -> str:
@@ -533,8 +550,14 @@ def render(report: Report) -> str:
     if report.found:
         hit = report.chosen
         lines.append(f"manifest:  {MANIFEST}")
-        lines.append(f"           {_where(hit, report.root)}, {hit.size} bytes, "
-                     f"{'exact spelling' if hit.exact else 'spelled ' + hit.path}")
+        where = _where(hit, report.root)
+        if not hit.in_pack:
+            where = f"{where} at {hit.located}"
+        spelling = "" if hit.exact else f", spelled {hit.path}"
+        lines.append(f"           {where}, {hit.size} bytes{spelling}")
+        note = _search_path_note(hit)
+        if note:
+            lines.append(f"           {note}")
         for other in report.hits:
             if other is hit:
                 continue

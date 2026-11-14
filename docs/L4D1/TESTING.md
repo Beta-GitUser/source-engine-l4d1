@@ -130,6 +130,13 @@ one line per `*_dir.vpk` under the root, with its entry count and whether it has
     top folders: resource, materials
 ```
 
+A version 2 pack is a second trap: its header is 28 bytes instead of 12, but
+`tree_size` is still at offset 8. Reading the size from after the extra fields reads
+the first bytes of the tree and truncates the index — six real packs here went from
+thousands of entries to a few hundred, and what looked like "this pack has no
+`scripts/` folder" was the reader stopping early. Both the package reader and the two
+standalone ones now share that arithmetic and are tested against `build_vpk_v2`.
+
 `--strings` exists because a path is never one string in a VPK tree: it is stored
 as extension, then folder, then name, and a search for `scripts/surfaceproperties.txt`
 looks for bytes that are not there even when the file is. The parts of the name are.
@@ -173,6 +180,18 @@ python3 pyscripts/surface-manifest.py /storage/emulated/0/srceng
 
 Exit code 0 when the chain resolves, 1 when the manifest exists but something
 behind it is missing or broken, 2 when there is no manifest in the content.
+
+A loose file is only visible to the engine if its folder is on a search path —
+`left4dead/`, `hl2/`, `platform/` and the DLC folders are, the directory above them
+is not. So the report prints where the file really is, and says so when that is
+somewhere the engine never looks:
+
+```
+manifest:  scripts/surfaceproperties_manifest.txt
+           a loose file at garrysmod/scripts/surfaceproperties_manifest.txt, 595 bytes
+           note: 'garrysmod/' is not one of the folders the engine searches
+           (left4dead/, hl2/, platform/), so it cannot see this file there
+```
 
 Both print what they actually read before saying anything about the manifest — one
 line per `*_dir.vpk` with its version, entry count and how many entries are under

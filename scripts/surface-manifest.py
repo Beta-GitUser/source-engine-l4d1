@@ -29,6 +29,9 @@ import sys
 from pathlib import Path
 
 MANIFEST = "scripts/surfaceproperties_manifest.txt"
+
+# The folders the engine's search paths can reach from a game directory.
+SEARCHED = ("scripts", "left4dead", "left4dead_dlc3", "hl2", "platform")
 PREFIX = "scripts/surfaceproperties"
 
 # What builds before the manifest hard-coded; this branch loads the first that reads.
@@ -61,11 +64,12 @@ class Pack:
         magic, version = struct.unpack_from("<II", blob, 0)
         if magic != VPK_SIGNATURE:
             raise ValueError(f"{self.path.name}: not a VPK (0x{magic:08x})")
-        pos = 8
-        if version == 2:
-            pos += 20                      # tree size, data size, 3 signature sizes
-        tree_size = struct.unpack_from("<I", blob, pos)[0]
-        pos += 4
+        # tree_size sits at offset 8 in both header layouts; version 2 only makes
+        # the header longer (three sizes and a signature size before the tree), so
+        # the tree begins at 28 rather than 12. Reading the size after those fields
+        # instead reads the first bytes of the tree and truncates the index.
+        (tree_size,) = struct.unpack_from("<I", blob, 8)
+        pos = 28 if version == 2 else 12
         end = min(pos + tree_size, len(blob))
 
         self.version = version
@@ -142,7 +146,7 @@ class Content:
                 continue
             relative = candidate.relative_to(self.root).as_posix()
             logical = self.logical(relative)
-            self.loose.setdefault(logical.lower(), (logical, candidate))
+            self.loose.setdefault(logical.lower(), (logical, relative, candidate))
 
         for pack in self.packs:
             under_scripts = [name for name in pack.items() if name[0].lower()
@@ -163,9 +167,10 @@ class Content:
     def survey(self):
         """Every surface properties file: (logical path as stored, kind, where, size)."""
         found = []
-        for _key, (logical, path) in sorted(self.loose.items()):
+        for _key, (logical, relative, path) in sorted(self.loose.items()):
             if logical.lower().startswith(PREFIX):
-                found.append((logical, "loose", "a loose file", path.stat().st_size))
+                found.append((logical, "loose", f"a loose file at {relative}",
+                              path.stat().st_size))
         for pack in self.packs:
             for name, size in pack.items():
                 if name.lower().startswith(PREFIX):
@@ -184,10 +189,12 @@ class Content:
 
         stored = self.loose.get(key)
         if stored is not None and stored[0] == logical:
-            return stored[1].read_bytes(), "loose", "a loose file", stored[0]
-        for _key, (real, path) in sorted(self.loose.items()):
+            return (stored[2].read_bytes(), "loose", f"a loose file at {stored[1]}",
+                    stored[1])
+        for _key, (real, relative, path) in sorted(self.loose.items()):
             if real.lower() == key:
-                return path.read_bytes(), "loose-case", "a loose file", real
+                return (path.read_bytes(), "loose-case",
+                        f"a loose file at {relative}", relative)
         for pack in self.packs:
             hits = pack.find(logical)
             if hits is not None:
@@ -339,6 +346,12 @@ def show(content, manifest_hits, chosen, data, kind, where, root_name, blocks,
     else:
         described = "exact spelling" if kind in ("loose", "pack") else f"spelled {chosen}"
         print(f"           {where}, {len(data)} bytes, {described}")
+        if kind in ("loose", "loose-case") and "/" in chosen:
+            folder = chosen.split("/")[0]
+            if folder.lower() not in SEARCHED:
+                print(f"           note: '{folder}/' is not one of the folders the "
+                      "engine searches (left4dead/, hl2/, platform/), so it cannot "
+                      "see this file there")
         if kind == "loose-case":
             print("           a loose file keeps its own case; inside a pack it would "
                   "not matter")

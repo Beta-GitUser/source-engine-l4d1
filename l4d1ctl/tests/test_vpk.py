@@ -1,3 +1,4 @@
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,6 +26,48 @@ class BuildAndReadTests(unittest.TestCase):
                 self.assertEqual(archive.read(name), content, name)
             self.assertEqual(archive.verify(), [])
             self.assertEqual(archive.info.parts, [])
+
+    def test_roundtrip_version_2(self):
+        """version 2 moves the tree to offset 28 but keeps tree_size at 8.
+
+        Reading the size from after the extra fields instead read the first bytes
+        of the tree and truncated the index, which is how six packs went from
+        thousands of entries to a few hundred.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pak01_dir.vpk"
+            files = {f"scripts/script{i}.txt": b"x" * (i + 1) for i in range(40)}
+            files["materials/a.vmt"] = b"y"
+            vpk.build_vpk_v2(path, files)
+            archive = vpk.VPK(path)
+            self.assertEqual(archive.info.version, 2)
+            self.assertEqual(len(archive), len(files))
+            self.assertEqual(sum(1 for entry in archive
+                                 if entry.path.startswith("scripts/")), 40)
+            self.assertEqual(archive.read("scripts/script39.txt"), b"x" * 40)
+
+    def test_a_version_2_pack_reads_the_same_as_version_1(self):
+        files = {f"scripts/s{i}.txt": b"x" for i in range(25)}
+        files.update({"materials/a.vmt": b"y", "models/b.mdl": b"z"})
+        with tempfile.TemporaryDirectory() as tmp:
+            one = Path(tmp) / "one"
+            two = Path(tmp) / "two"
+            one.mkdir()
+            two.mkdir()
+            vpk.build_vpk_v1(one / "pak01_dir.vpk", files)
+            vpk.build_vpk_v2(two / "pak01_dir.vpk", files)
+            # Offsets differ by the 16 extra header bytes; what matters is that the
+            # same names, lengths and readable data come back.
+            listed = lambda path: sorted((e.path, e.length, vpk.VPK(path).read(e.path))
+                                         for e in vpk.VPK(path))
+            self.assertEqual(listed(one / "pak01_dir.vpk"), listed(two / "pak01_dir.vpk"))
+
+    def test_a_version_2_header_that_is_short_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pak01_dir.vpk"
+            path.write_bytes(struct.pack("<II", 0x55AA1234, 2))
+            with self.assertRaises(vpk.VPKError):
+                vpk.VPK(path)
 
     def test_roundtrip_split(self):
         with tempfile.TemporaryDirectory() as tmp:

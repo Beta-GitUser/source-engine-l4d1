@@ -272,8 +272,15 @@ def summarise(path: Path) -> Dict[str, object]:
     }
 
 
-def build_vpk_v1(target: Path, files: Dict[str, bytes], *, split: bool = False) -> Path:
-    """Write a minimal v1 VPK.
+def build_vpk_v1(target: Path, files: Dict[str, bytes], *, split: bool = False,
+                 version: int = 1) -> Path:
+    """Write a minimal VPK, version 1 unless asked otherwise.
+
+    Version 2 changes exactly two things: the header gains four uint32s (file data
+    size, archive md5 size, other md5 size, signature size) so the tree starts at
+    28 instead of 12, and ``tree_size`` stays at offset 8 in both. Reading the tree
+    size from after the version-2 header instead truncated the index - which is
+    what made packs look like they had no ``scripts/`` folder.
 
     With ``split=False`` all payload lives in the dir file (archive index
     0x7FFF). With ``split=True`` it goes into ``<base>_000.vpk`` and entries
@@ -316,12 +323,21 @@ def build_vpk_v1(target: Path, files: Dict[str, bytes], *, split: bool = False) 
     tree += b"\x00"          # end of the extension list
 
     tree_size = len(tree)
-    cursor = 0 if split else 12 + tree_size
+    header_size = 28 if version == 2 else 12
+    cursor = 0 if split else header_size + tree_size
     for position, content in zip(drafts, ordered):
         struct.pack_into("<I", tree, position + 8, cursor)
         cursor += len(content)
 
-    dir_blob = struct.pack("<III", VPK_SIGNATURE, 1, tree_size) + bytes(tree)
+    if version == 2:
+        header = struct.pack("<IIIIIII", VPK_SIGNATURE, 2, tree_size,
+                             0 if split else sum(len(item) for item in ordered),
+                             0, 0, 0)
+    elif version == 1:
+        header = struct.pack("<III", VPK_SIGNATURE, 1, tree_size)
+    else:
+        raise ValueError(f"no builder for VPK version {version}")
+    dir_blob = header + bytes(tree)
     if split:
         dir_blob += b""  # payload lives in the part file
         base = target.name[: -len("_dir.vpk")] if target.name.endswith("_dir.vpk") else target.stem
@@ -333,3 +349,8 @@ def build_vpk_v1(target: Path, files: Dict[str, bytes], *, split: bool = False) 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(dir_blob)
     return target
+
+
+def build_vpk_v2(target: Path, files: Dict[str, bytes], *, split: bool = False) -> Path:
+    """Write a minimal v2 VPK: the header layout the games here actually use."""
+    return build_vpk_v1(target, files, split=split, version=2)
