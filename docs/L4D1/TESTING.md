@@ -100,6 +100,43 @@ The verdict distinguishes the failures that look identical in the engine log:
 * **zeros, gzip, or LZMA** — not a scene image at all, so suspect the pack read
   rather than the format.
 
+## What is actually inside a pack
+
+When a name "is not in the pack", three different things could be true, and they
+have different fixes: the tree has no such folder, the tree spells the entry
+differently, or the entry's bytes are not there. `scripts/vpk-list.py` shows all
+three without the engine.
+
+```sh
+python3 pyscripts/vpk-list.py left4dead/pak01_dir.vpk              # counts, folders
+python3 pyscripts/vpk-list.py left4dead/pak01_dir.vpk --folders    # every folder
+python3 pyscripts/vpk-list.py left4dead/pak01_dir.vpk --filter surfaceproperties
+python3 pyscripts/vpk-list.py left4dead/pak01_dir.vpk --strings 60 # tree as stored
+python3 pyscripts/vpk-list.py /storage/emulated/0/srceng           # every pack
+```
+
+That last form is the one that answers "where does this game keep its `scripts/`":
+one line per `*_dir.vpk` under the root, with its entry count and whether it has a
+`scripts/` folder at all, plus `--filter` applied across all of them.
+
+```
+3 pack(s) under /storage/emulated/0/srceng:
+
+  hl2/hl2_misc_dir.vpk: vpk v1, 9134 entries, 412 under scripts/
+    top folders: materials, sound, models, scripts
+  left4dead/pak01_dir.vpk: vpk v1, 20869 entries, no scripts/ folder
+    top folders: materials, models, sound, particles
+  platform/platform_misc_dir.vpk: vpk v1, 2210 entries, no scripts/ folder
+    top folders: resource, materials
+```
+
+`--strings` exists because a path is never one string in a VPK tree: it is stored
+as extension, then folder, then name, and a search for `scripts/surfaceproperties.txt`
+looks for bytes that are not there even when the file is. The parts of the name are.
+
+A `pak01_000.vpk` data part is refused by name: parts have no header and no index,
+their first bytes are whatever file starts there.
+
 ## Is the surface property manifest there, and does the chain behind it work?
 
 `l4d1ctl surface` answers the three questions separately, because they fail
