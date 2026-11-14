@@ -93,6 +93,10 @@ class Pack:
                         blob[pos:pos + preload])
                     pos += preload
 
+        if not self.entries:
+            raise ValueError(f"{self.path.name}: the index parsed to 0 entries, so "
+                             "the VPK reader could not read this pack")
+
     def find(self, wanted):
         entry = self.entries.get(wanted.replace("\\", "/").lstrip("/").lower())
         return entry[0] if entry else None
@@ -124,6 +128,7 @@ class Content:
     def __init__(self, root):
         self.root = Path(root).expanduser()
         self.packs = []
+        self.stats = []          # (path as shown, version, entries, scripts, samples)
         self.loose = {}          # logical path, lowercased -> (real path, file)
         for candidate in sorted(self.root.rglob("*")):
             if not candidate.is_file():
@@ -138,6 +143,13 @@ class Content:
             relative = candidate.relative_to(self.root).as_posix()
             logical = self.logical(relative)
             self.loose.setdefault(logical.lower(), (logical, candidate))
+
+        for pack in self.packs:
+            under_scripts = [name for name in pack.items() if name[0].lower()
+                             .startswith("scripts/")]
+            self.stats.append((pack.path.relative_to(self.root).as_posix(),
+                               pack.version, len(pack.entries), len(under_scripts),
+                               [name for name, _size in under_scripts[:200]]))
 
     @staticmethod
     def logical(name):
@@ -281,9 +293,43 @@ def parse(text):
 # The report
 # ---------------------------------------------------------------------------
 
+def raw_mentions(content, needle=b"surfaceproperties", limit=5):
+    """Occurrences of a name in a dir file's raw bytes, index or no index.
+
+    The index is the part of a VPK that a reader can get wrong; the names it stores
+    are just bytes in the same file. If the tree says nothing and the bytes say
+    plenty, the reader is what needs fixing.
+    """
+    results = []
+    for pack in content.packs:
+        blob = pack.blob
+        total = blob.count(needle)
+        samples = []
+        start = 0
+        while len(samples) < limit:
+            found = blob.find(needle, start)
+            if found < 0:
+                break
+            left = found
+            while left > 0 and 32 <= blob[left - 1] < 127:
+                left -= 1
+            right = found + len(needle)
+            while right < len(blob) and 32 <= blob[right] < 127:
+                right += 1
+            samples.append(blob[left:right].decode("ascii", "replace"))
+            start = found + len(needle)
+        results.append((pack.path.name, total, samples, len(pack.entries)))
+    return results
+
+
 def show(content, manifest_hits, chosen, data, kind, where, root_name, blocks,
          missing_brace, entries, bogus, siblings, files, available):
     print(f"content root: {content.root}")
+    print()
+    for shown, version, total, under_scripts, samples in content.stats:
+        print(f"pack:      {shown} — vpk v{version}, {total} entries, "
+              f"{under_scripts} under scripts/")
+    print(f"loose:     {len(content.loose)} files")
     print()
     print(f"manifest:  {MANIFEST}")
     if chosen is None:
@@ -349,6 +395,30 @@ def show(content, manifest_hits, chosen, data, kind, where, root_name, blocks,
         else:
             print("and no scripts/surfaceproperties* file is under this root at all, "
                   "loose or packed")
+            if content.packs:
+                print()
+                print("Raw byte search, which does not depend on the index:")
+                for name, total, samples, entries in raw_mentions(content):
+                    if total:
+                        print(f"  {name}: {total} mention(s) of "
+                              f"'surfaceproperties', e.g. {', '.join(samples[:3])}")
+                        print(f"    -> the names are in the file but the index lists "
+                              f"{entries} entries: the reader is wrong, not the content")
+                    else:
+                        print(f"  {name}: not a single mention, and the index lists "
+                              f"{entries} entries")
+            if content.stats:
+                print()
+                print("That is worth a second look rather than a shrug: the packs "
+                      "above parsed, and none of them holds one.")
+                for shown, _version, total, under_scripts, samples in content.stats:
+                    if samples:
+                        listing = ", ".join(samples[:10])
+                        print(f"  {shown} has {under_scripts} scripts/ entries, e.g. "
+                              f"{listing}")
+                    else:
+                        print(f"  {shown} has {total} entries and not one under "
+                              "scripts/ — suspect the reader, not the content")
 
 
 def main(argv):
@@ -363,11 +433,19 @@ def main(argv):
         return 2
 
     if target.is_file() and target.suffix.lower() == ".vpk":
-        # One pack: look inside it, and let missing neighbours resolve as absent.
+        if not target.stem.endswith("_dir"):
+            print(f"{target.name} is one data part of a multi-part pack; the file that "
+                  "names what is in it is "
+                  f"{target.name.rsplit('_', 1)[0]}_dir.vpk, in the same folder.",
+                  file=sys.stderr)
+            print(f"pass that instead, or pass the folder: surface-manifest.py "
+                  f"{target.parent}", file=sys.stderr)
+            return 2
+        # One pack: look inside it, and let anything outside it read as absent.
         root = target.parent
         content = Content(root)
-        content.packs = [pack for pack in content.packs if pack.path == target] or \
-            [Pack(target)]
+        content.packs = [pack for pack in content.packs
+                         if pack.path.resolve() == target.resolve()]
         content.loose = {}
     else:
         content = Content(target)

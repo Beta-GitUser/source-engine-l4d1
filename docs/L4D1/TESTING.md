@@ -137,6 +137,22 @@ python3 pyscripts/surface-manifest.py /storage/emulated/0/srceng
 Exit code 0 when the chain resolves, 1 when the manifest exists but something
 behind it is missing or broken, 2 when there is no manifest in the content.
 
+Both print what they actually read before saying anything about the manifest — one
+line per `*_dir.vpk` with its version, entry count and how many entries are under
+`scripts/`, and the loose file count:
+
+```
+pack:      left4dead/pak01_dir.vpk — vpk v1, 30124 entries, 96 under scripts/
+loose:     1421 files
+```
+
+A `0 entries` there means the reader could not get into the index, not that the pack
+is empty. And when no `scripts/surfaceproperties*` shows up at all, they search the
+dir file's raw bytes for the name, which does not trust the index: names live in the
+tree, so bytes without an index entry means the reader is wrong, while no bytes at
+all means the content really has none. Passing a `pak01_000.vpk` data part is refused
+by name — only the `_dir.vpk` has an index.
+
 The report separates the failures that the engine log renders as one line each:
 
 | what it prints | what it means |

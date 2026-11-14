@@ -256,6 +256,21 @@ class SurfaceFile:
 
 
 @dataclass
+class PackOverview:
+    """What one ``*_dir.vpk`` actually parsed into, so a nil result is explainable."""
+
+    path: str
+    version: Optional[int] = None
+    entries: int = 0
+    under_scripts: int = 0
+    error: str = ""
+
+    def to_dict(self) -> dict:
+        return {"path": self.path, "version": self.version, "entries": self.entries,
+                "under_scripts": self.under_scripts, "error": self.error}
+
+
+@dataclass
 class Report:
     root: Path
     hits: List[contentaudit.Hit] = field(default_factory=list)
@@ -266,6 +281,9 @@ class Report:
     bogus: List[str] = field(default_factory=list)
     files: List[SurfaceFile] = field(default_factory=list)
     fallbacks_present: List[contentaudit.Hit] = field(default_factory=list)
+    packs: List[PackOverview] = field(default_factory=list)
+    loose_files: int = 0
+    mentions: List[tuple] = field(default_factory=list)
     available: List[contentaudit.Hit] = field(default_factory=list)
     error: str = ""
 
@@ -350,6 +368,10 @@ class Report:
                        "surfaces": item.surfaces,
                        "missing_bases": item.missing_bases,
                        "error": item.error} for item in self.files],
+            "packs": [pack.to_dict() for pack in self.packs],
+            "raw_mentions": [{"pack": name, "count": count, "samples": samples}
+                             for name, count, samples in self.mentions],
+            "loose_files": self.loose_files,
             "fallbacks_present": [hit.path for hit in self.fallbacks_present],
             "available": [{"path": hit.path, "source": hit.source, "size": hit.size}
                           for hit in self.available],
@@ -357,10 +379,73 @@ class Report:
         }
 
 
+def _overview(root: Path) -> tuple:
+    """Every pack under the root and how much of it parsed, plus the loose count."""
+    packs: List[PackOverview] = []
+    loose = 0
+    for candidate in sorted(root.rglob("*")):
+        if not candidate.is_file():
+            continue
+        if candidate.suffix.lower() == ".vpk":
+            if not candidate.stem.endswith("_dir"):
+                continue
+            overview = PackOverview(path=candidate.relative_to(root).as_posix())
+            try:
+                archive = vpk.VPK(candidate)
+            except vpk.VPKError as error:
+                overview.error = str(error)
+            else:
+                overview.version = archive.info.version
+                overview.entries = len(archive)
+                overview.under_scripts = sum(
+                    1 for entry in archive if entry.path.lower().startswith("scripts/"))
+            packs.append(overview)
+        else:
+            loose += 1
+    return packs, loose
+
+
+def raw_mentions(root: Path, packs: Sequence[PackOverview],
+                 needle: bytes = b"surfaceproperties", limit: int = 3) -> List[tuple]:
+    """Occurrences of a name in a dir file's raw bytes, index or no index.
+
+    In a VPK the names *are* in the index, so if the reader lists none of them the
+    question is whether it misread the tree or the pack has none. The bytes answer
+    that without trusting the reader.
+    """
+    found: List[tuple] = []
+    for pack in packs:
+        if pack.error:
+            continue
+        try:
+            blob = (root / pack.path).read_bytes()
+        except OSError:
+            continue
+        samples: List[str] = []
+        start = 0
+        while len(samples) < limit:
+            hit = blob.find(needle, start)
+            if hit < 0:
+                break
+            left = hit
+            while left > 0 and 32 <= blob[left - 1] < 127:
+                left -= 1
+            right = hit + len(needle)
+            while right < len(blob) and 32 <= blob[right] < 127:
+                right += 1
+            samples.append(blob[left:right].decode("ascii", "replace"))
+            start = hit + len(needle)
+        found.append((pack.path, blob.count(needle), samples))
+    return found
+
+
 def audit(root: Path, *, max_surfaces: int = 0) -> Report:
     root = Path(root).expanduser()
     report = Report(root=root)
+    report.packs, report.loose_files = _overview(root)
     report.available = list_surface_files(root)
+    if not report.available:
+        report.mentions = raw_mentions(root, report.packs)
     report.hits = locate(root, MANIFEST)
 
     # The engine asks for one exact name, so prefer a hit it would resolve.
@@ -433,6 +518,16 @@ def _where(hit: contentaudit.Hit, root: Path) -> str:
 def render(report: Report) -> str:
     lines: List[str] = []
     lines.append(f"content root: {report.root}")
+    lines.append("")
+    for pack in report.packs:
+        if pack.error:
+            lines.append(f"pack:      {pack.path} — unreadable: {pack.error}")
+            continue
+        note = "" if pack.entries else \
+            "   (0 entries: the reader could not read this pack)"
+        lines.append(f"pack:      {pack.path} — vpk v{pack.version}, "
+                     f"{pack.entries} entries, {pack.under_scripts} under scripts/{note}")
+    lines.append(f"loose:     {report.loose_files} files")
     lines.append("")
 
     if report.found:
@@ -512,6 +607,30 @@ def render(report: Report) -> str:
         else:
             lines.append("and no scripts/surfaceproperties* file is under this root "
                          "at all, loose or packed")
+            if report.mentions:
+                lines.append("")
+                lines.append("Raw byte search, which does not depend on the index:")
+                for name, count, samples in report.mentions:
+                    if count:
+                        lines.append(f"  {name}: {count} mention(s) of "
+                                     f"'surfaceproperties', e.g. {', '.join(samples)}")
+                        lines.append("    -> the names are in the file but the index "
+                                     "lists none: the reader is wrong, not the content")
+                    else:
+                        lines.append(f"  {name}: not a single mention")
+            readable = [pack for pack in report.packs if not pack.error]
+            if readable:
+                lines.append("")
+                lines.append("That is worth a second look rather than a shrug: the "
+                             "packs above parsed, and none of them holds one.")
+                for pack in readable:
+                    if pack.under_scripts:
+                        lines.append(f"  {pack.path} has {pack.under_scripts} scripts/ "
+                                     "entries, so look at what they are called")
+                    else:
+                        lines.append(f"  {pack.path} has {pack.entries} entries and "
+                                     "not one under scripts/ - suspect the reader, "
+                                     "not the content")
     elif report.fallbacks_present and not report.contributes:
         lines.append("")
         lines.append("what this branch would fall back to, having loaded nothing:")

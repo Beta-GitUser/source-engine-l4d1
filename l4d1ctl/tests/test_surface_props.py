@@ -10,6 +10,7 @@ the manifest loop never visits).
 """
 
 import json
+import struct
 import subprocess
 import sys
 import tempfile
@@ -91,7 +92,7 @@ class AuditTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _pack(self, files):
-        vpk.build_vpk_v1(self.game / "pak01_dir.vpk", files)
+        return vpk.build_vpk_v1(self.game / "pak01_dir.vpk", files)
 
     def test_a_manifest_and_its_file_inside_a_pack_is_ok(self):
         self._pack({MANIFEST: MANIFEST_TEXT, SURFACES: SURFACES_TEXT})
@@ -180,6 +181,36 @@ class AuditTests(unittest.TestCase):
         report = surfaceprops.audit(self.root)
         self.assertEqual(report.files[1].missing_bases, [])
         self.assertEqual(report.exit_code(), 0, report.problems)
+
+    def test_the_report_says_what_each_pack_parsed_into(self):
+        """A nil result has to be explainable: "no surface file here" is a different
+        claim from "the reader did not get into the pack"."""
+        self._pack({"materials/a.vmt": b"x",
+                    "scripts/game_sounds_manifest.txt": b"// x\n"})
+        report = surfaceprops.audit(self.root)
+        self.assertEqual(len(report.packs), 1)
+        self.assertEqual(report.packs[0].entries, 2)
+        self.assertEqual(report.packs[0].under_scripts, 1)
+        text = surfaceprops.render(report)
+        self.assertIn("2 entries, 1 under scripts/", text)
+        self.assertIn("has 1 scripts/ entries, so look at what they are called", text)
+
+    def test_a_name_in_the_bytes_but_not_in_the_index_blames_the_reader(self):
+        """Names live in the VPK tree, so if the tree lists none of them this says
+        whether the pack has none or the reader misread it."""
+        pack = self._pack({"materials/a.vmt": b"x"})
+        pack.write_bytes(pack.read_bytes() + b"\0scripts/surfaceproperties.txt\0")
+        report = surfaceprops.audit(self.root)
+        self.assertEqual(report.mentions[0][1], 1)
+        text = surfaceprops.render(report)
+        self.assertIn("the reader is wrong, not the content", text)
+
+    def test_an_empty_index_is_named_rather_than_read_as_empty_content(self):
+        (self.game / "pak01_dir.vpk").write_bytes(
+            struct.pack("<III", 0x55AA1234, 1, 1) + b"\0")
+        report = surfaceprops.audit(self.root)
+        self.assertEqual(report.packs[0].entries, 0)
+        self.assertIn("could not read this pack", surfaceprops.render(report))
 
     def test_the_report_survives_a_pack_that_is_not_a_pack(self):
         (self.game / "pak01_dir.vpk").write_bytes(b"not a vpk at all")
@@ -270,6 +301,37 @@ class StandaloneScriptTests(unittest.TestCase):
         result = self._run(root)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("0 bytes", result.stdout)
+
+    def test_a_data_part_is_refused_with_the_name_of_the_index(self):
+        """pak01_000.vpk is raw data; only the _dir.vpk has an index."""
+        handle = tempfile.TemporaryDirectory()
+        self.addCleanup(handle.cleanup)
+        game = Path(handle.name) / "left4dead"
+        game.mkdir()
+        vpk.build_vpk_v1(game / "pak01_dir.vpk",
+                         {MANIFEST: MANIFEST_TEXT, SURFACES: SURFACES_TEXT},
+                         split=True)
+        part = game / "pak01_000.vpk"
+        self.assertTrue(part.is_file())
+        result = self._run(part)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("pak01_dir.vpk", result.stderr)
+        self.assertIn("data part", result.stderr)
+
+    def test_a_name_in_the_bytes_but_not_in_the_index_is_reported(self):
+        root = self._content({"materials/a.vmt": b"x"})
+        pack = root / "left4dead" / "pak01_dir.vpk"
+        pack.write_bytes(pack.read_bytes() + b"\0scripts/surfaceproperties.txt\0")
+        result = self._run(root)
+        self.assertIn("the reader is wrong, not the content", result.stdout)
+
+    def test_it_says_how_much_of_each_pack_it_read(self):
+        root = self._content({"materials/a.vmt": b"x"})
+        result = self._run(root)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("vpk v1, 1 entries", result.stdout)
+        self.assertIn("suspect the reader, not the content", result.stdout)
 
     def test_it_agrees_with_the_package_on_a_real_shaped_content_set(self):
         root = self._content({MANIFEST: MANIFEST_TEXT, SURFACES: SURFACES_TEXT})
