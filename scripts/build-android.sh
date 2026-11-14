@@ -52,6 +52,18 @@ diagnose() {
 	code=$?
 	[ "$code" -eq 0 ] && return 0
 	printf '\n--- build failed (exit %s) ---\n' "$code"
+	# The job log is an artifact, and an artifact lives on storage that restricted
+	# networks cannot reach; the annotations are the channel that always arrives,
+	# and they are one line each. So the tail travels as a single line, cut down
+	# to what fits, with '|' where the newlines were.
+	if [ -f build-android.log ]; then
+		printf '::error::log tail: %s\n' \
+			"$(tail -n 12 build-android.log | cut -c1-240 | tr '\n' '|')"
+	fi
+	if [ -f build/config.log ]; then
+		printf '::error::config tail: %s\n' \
+			"$(tail -n 8 build/config.log | cut -c1-240 | tr '\n' '|')"
+	fi
 	if [ -f build/config.log ]; then
 		printf -- '--- configure errors (build/config.log) ---\n'
 		grep -iE 'error|fatal|cannot find|no such file|undefined reference|not found|unsupported|unknown' \
