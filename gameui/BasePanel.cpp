@@ -1515,7 +1515,10 @@ void CBasePanel::CreateGameMenu()
 
 	if ( !m_pGameMenu )
 	{
-		Error( "Could not load file Resource/GameMenu.res" );
+		// The filesystem has already retried every component with the spelling the
+		// content reports, across loose folders and packs alike, so this really is
+		// "no such file" and not "found it under another name".
+		Error( "Could not load file Resource/GameMenu.res (no resource/ file in the mounted content under any spelling)" );
 	}
 	else
 	{

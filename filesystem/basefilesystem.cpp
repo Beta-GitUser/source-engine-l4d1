@@ -2375,6 +2375,73 @@ FileHandle_t CBaseFileSystem::FindFileInSearchPath( CFileOpenInfo &openInfo )
 
 
 //-----------------------------------------------------------------------------
+// Purpose: Windows content is authored with "Resource/GameMenu.res" style names.
+//          Where the pack or the folder happens to hold "resource/gamemenu.res",
+//          every case-sensitive lookup of it fails, and the caller reads that as
+//          "the file is not installed". This walks the requested path one
+//          component at a time, taking the spelling FindFirst reports, so the
+//          retry uses the name that exists.
+//-----------------------------------------------------------------------------
+bool CBaseFileSystem::ResolvePathIgnoringCase( const char *pPath, char *pOut, int nOutLen )
+{
+	char szWork[MAX_PATH];
+	V_strncpy( szWork, pPath, sizeof( szWork ) );
+	V_FixSlashes( szWork );
+
+	char szResolved[MAX_PATH];
+	szResolved[0] = '\0';
+
+	char *pCursor = szWork;
+	while ( pCursor && *pCursor )
+	{
+		char *pSlash = strchr( pCursor, CORRECT_PATH_SEPARATOR );
+		if ( pSlash )
+			*pSlash = '\0';
+
+		char szPattern[MAX_PATH];
+		if ( szResolved[0] )
+			V_snprintf( szPattern, sizeof( szPattern ), "%s/*", szResolved );
+		else
+			V_strncpy( szPattern, "*", sizeof( szPattern ) );
+
+		char szMatched[MAX_PATH];
+		szMatched[0] = '\0';
+
+		FileFindHandle_t hFind = NULL;
+		const char *pName = FindFirst( szPattern, &hFind );
+		while ( pName )
+		{
+			if ( !V_stricmp( pName, pCursor ) )
+			{
+				V_strncpy( szMatched, pName, sizeof( szMatched ) );
+				break;
+			}
+			pName = FindNext( hFind );
+		}
+		if ( hFind )
+			FindClose( hFind );
+
+		if ( !szMatched[0] )
+			return false;
+
+		char szNext[MAX_PATH];
+		if ( szResolved[0] )
+			V_snprintf( szNext, sizeof( szNext ), "%s/%s", szResolved, szMatched );
+		else
+			V_strncpy( szNext, szMatched, sizeof( szNext ) );
+		V_strncpy( szResolved, szNext, sizeof( szResolved ) );
+
+		pCursor = pSlash ? ( pSlash + 1 ) : NULL;
+	}
+
+	if ( !szResolved[0] )
+		return false;
+
+	V_strncpy( pOut, szResolved, nOutLen );
+	return true;
+}
+
+//-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
 FileHandle_t CBaseFileSystem::OpenForRead( const char *pFileNameT, const char *pOptions, unsigned flags, const char *pathID, char **ppszResolvedFilename )
@@ -2547,6 +2614,38 @@ FileHandle_t CBaseFileSystem::OpenForRead( const char *pFileNameT, const char *p
 			// 
 			openInfo.HandleFileCRCTracking( openInfo.m_pFileName );
 			return filehandle;
+		}
+	}
+
+	// A name the content spelled differently is still the file the caller meant.
+	// Only worth a directory walk when the request is not already all lowercase,
+	// and never for an absolute path (the caller knows what it built).
+	if ( !V_IsAbsolutePath( pFileName ) )
+	{
+		bool bHasUpper = false;
+		for ( const char *pScan = pFileName; *pScan; ++pScan )
+		{
+			if ( *pScan >= 'A' && *pScan <= 'Z' )
+			{
+				bHasUpper = true;
+				break;
+			}
+		}
+
+		if ( bHasUpper )
+		{
+			char szCaseFixed[MAX_PATH];
+			if ( ResolvePathIgnoringCase( pFileName, szCaseFixed, sizeof( szCaseFixed ) ) &&
+				 V_stricmp( szCaseFixed, pFileName ) != 0 )
+			{
+				static int s_nCaseFixedLogged = 0;
+				if ( s_nCaseFixedLogged < 24 )
+				{
+					++s_nCaseFixedLogged;
+					Msg( "FS: resolved '%s' as '%s'\n", pFileName, szCaseFixed );
+				}
+				return OpenForRead( szCaseFixed, pOptions, flags, pathID, ppszResolvedFilename );
+			}
 		}
 	}
 

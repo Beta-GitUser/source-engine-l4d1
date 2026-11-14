@@ -807,6 +807,8 @@ protected:
 
 	// Opens a file for read or write
 	FileHandle_t OpenForRead( const char *pFileName, const char *pOptions, unsigned flags, const char *pathID, char **ppszResolvedFilename = NULL );
+	// Retries a failed read against the spelling the content actually has on disk
+	bool ResolvePathIgnoringCase( const char *pPath, char *pOut, int nOutLen );
 	FileHandle_t OpenForWrite( const char *pFileName, const char *pOptions, const char *pathID );
 	CSearchPath *FindWritePath( const char *pFilename, const char *pathID );
 

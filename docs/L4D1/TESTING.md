@@ -332,6 +332,47 @@ written does not load, it looks for it again with case folded away, logs the
 spelling it found, and loads that. A manifest naming a file the content does not
 carry is a warning, not a fatal error.
 
+## `Could not load file Resource/GameMenu.res`
+
+Same question as above, and on device it was the same answer: a boot that ends in
+`gameui/BasePanel.cpp`'s `Error()` because `Resource/GameMenu.res` "does not
+exist" also failed `Resource/valve_english.txt`, `Resource/gameui_english.txt` and
+every `Resource\*UIPanel.res`, while finding every `materials/dev`,
+`materials/debug` and `materials/engine` asset. A dozen unrelated files do not go
+missing over one letter; a `Resource/` versus `resource/` mismatch does.
+
+Ask the content, not the log:
+
+```sh
+python3 -m l4d1ctl find Resource/GameMenu.res
+```
+
+```
+looking for: Resource/GameMenu.res
+under:       /storage/emulated/0/srceng
+
+[case]   resource/GameMenu.res
+          in loose
+          the engine asks for exactly 'Resource/GameMenu.res'
+```
+
+A `[case]` line means nothing is missing and nothing needs copying: the engine
+retries a failed loose-file read with the spelling the directory reports
+(`ResolvePathIgnoringCase` in `filesystem/basefilesystem.cpp`) and logs the
+correction once per path:
+
+```
+FS: resolved 'Resource/GameMenu.res' as 'resource/GameMenu.res'
+```
+
+Only the first 24 corrections are logged, so a silent log is not a missing file.
+Packs never needed this — VPK lookups already compare with `V_stricmp`.
+
+If the boot still stops at that line and `find` reports nothing at all, then the
+folder is genuinely absent: extract or copy `resource/` into the game directory
+(`python3 scripts/vpk-list.py left4dead/pak01_dir.vpk --filter resource/GameMenu.res`
+tells you whether it is packed) instead of patching the engine again.
+
 ## When it stops: the `##### stack` block
 
 A fatal `Error()` ends in `Sys_Error`, and Breakpad takes the `SIGTRAP` it raises:

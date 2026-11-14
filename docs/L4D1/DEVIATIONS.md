@@ -51,17 +51,29 @@ era-correct headers" is not an option that exists — the improvisation is force
 | Surface property manifest | `PhysParseSurfaceData` falls back to the pre-manifest `scripts/surfaceproperties.txt` / `_ep2` when `scripts/surfaceproperties_manifest.txt` is absent, and only warns when none of them exist | the manifest is a later Source invention; L4D1's content ships the single file, and the stock code `Error()`s on the missing manifest, which killed a boot on device after everything else had loaded | high — the files it falls back to are the ones older builds hard-coded | content that ships a manifest after all |
 | Scene image version 3 | a `scenes/scenes.image` at version 3 is read as version 2 when `SceneImageLayoutIsSane()` confirms every entry, summary and string index lies inside the file | L4D1's content ships version 3 (measured: 5877 scenes, 5918 strings, `nSceneEntryOffset` 195316, entries and summaries contiguous and in range) while this SDK's constant is 2; the structs are the same, so the version number is the only difference | high on this file — every field validated against the bytes | content whose image really does change layout, which the validator would reject |
 | Scene image version | a `scenes/scenes.image` whose id/version this build does not know is warned about and skipped instead of being fatal (`SceneFileCache.cpp`) | the image is a cache, not content: `GetSceneBufferSize` returns 0 and `LoadScene` returns NULL when it is absent, which every caller handles. Dying there is indistinguishable from a port crash on a phone | high — the fallback path is the one already used when the file is missing | dialogue that should play turning out silent, which would point at the same file |
-| Path case | lookups must work with Valve's mixed case (`Resource/UI/…`) on a case-sensitive filesystem | Android is case-sensitive; Windows was not | unknown yet | any "missing resource" on device — see below |
+| Path case | `CBaseFileSystem::OpenForRead` retries a failed loose-file read one component at a time, taking each component's spelling from `FindFirst` (`ResolvePathIgnoringCase`), and logs `FS: resolved '<asked>' as '<found>'` the first 24 times. The retry only runs for names containing an uppercase letter, so the all-lowercase engine lookups cost nothing | Valve's data asks for `Resource/GameMenu.res` while the game directory holds `resource/`: the boot died in `CBasePanel::CreateGameMenu`'s `Error()` on device. VPK lookups already fold case (`V_stricmp`); only loose files did not | high — the log showed `Resource/valve_english.txt`, `Resource/gameui_english.txt` and a dozen `Resource\*UIPanel.res` failing together, which is one case mismatch rather than a dozen missing files, and the same run found every `materials/dev|debug|engine` asset | a content set where the folder really is absent — then `Error()` fires and says so |
 
-## The one that will bite first: case sensitivity
+## Case sensitivity, and how it was settled
 
 Valve's data uses mixed-case paths (`Resource/UI/HUD/BoomerHealth.res`), and it
 was authored on Windows where case does not matter. Android filesystems are case
-sensitive, VPK lookups are exact-match, and half the paths inside the packs may
-not match the case the code asks for. The engine's file search already tries a
-few variants; if resources go missing on device, this is the first suspect and
-the fix is a case-insensitive fallback in the VPK/filesystem layer, not a mass
-rename of the content (which we would have to redo on every content update).
+sensitive. This was the first suspect for a missing resource and it turned out to
+be the answer: a device boot logged `Could not load file Resource/GameMenu.res`
+and, in the same run, `Resource/valve_english.txt`, `Resource/gameui_english.txt`
+and every `Resource\*UIPanel.res` — while the game directory holds them all under
+`resource/`. Whitespace, permissions and search paths do not produce that pattern;
+one letter of case does.
+
+The fix is in the filesystem, not in the content: `OpenForRead` retries a failed
+loose-file read one component at a time and adopts the spelling `FindFirst`
+reports, which is the same trick the surface-property loader uses for
+`scripts/`. Packs needed nothing — a VPK lookup already compares with
+`V_stricmp`. Mass-renaming the content was rejected: it would have to be redone on
+every content update, and it would hide the next case bug instead of fixing it.
+
+What proves the diagnosis wrong: the retry runs, logs nothing, and the `Error()`
+still fires — that means the folder is genuinely absent, and the message now says
+which of the two it is.
 
 ## How to add an entry
 
