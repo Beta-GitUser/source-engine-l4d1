@@ -34,7 +34,9 @@ This project is using waf buildsystem. If you have waf-related questions look ht
 - Rewrite materialsystem for OpenGL render
 - dxvk-native support
 - Elbrus port
-- Bink audio support( for video_bink )
+- Bink audio support( for video_bink ) - video decodes through FFmpeg, audio is
+  still unimplemented: `HasAudio()` reports false and the module answers "not
+  supported" to the engine's sound-device calls
 
 # How to Build?
 - [Building instructions(EN)](https://github.com/nillerusr/source-engine/wiki/Source-Engine-(EN))
@@ -77,10 +79,23 @@ This fork targets Left 4 Dead 1 (appid 500). Status first, promises second:
 - **Playing L4D1** therefore means reimplementing the game on this engine.
   That is a large project; the roadmap says what it costs.
 
+Where the boot actually stands (last on-device run, engine `5e398ec`):
+
+- content mounts, the menu resource tree loads, the surface manifest resolves;
+- the process stops right after the audio driver module (`vaudio_minimp3`) is
+  loaded, before any movie is opened - there is no `CBinkMaterial::OpenMovie` line
+  in the log, so the Bink path has not been reached yet;
+- try `-novid` to take the movie out of the boot entirely before suspecting the
+  video module.
+
 Start here:
 
 - [`docs/L4D1/FEASIBILITY.md`](docs/L4D1/FEASIBILITY.md) - what works, what
   blocks, and the legal boundaries.
+- [`docs/L4D1/CONTENT.md`](docs/L4D1/CONTENT.md) - which Steam depot holds which
+  folder (the short version: depot 501 is the Source base and the loose
+  `resource/`, `scripts/`, `cfg/` trees, not "binaries"; 502 is assets; 504 is
+  sound). Read this before downloading the game a third time.
 - [`docs/L4D1/ROADMAP.md`](docs/L4D1/ROADMAP.md) - phases and exit criteria.
 - [`docs/L4D1/GAMECODE.md`](docs/L4D1/GAMECODE.md) - map hosting and walking
   today (HL2 bootstrap module), and how L4D map intros actually work.
@@ -88,7 +103,8 @@ Start here:
 - [`docs/L4D1/BUILDING.md`](docs/L4D1/BUILDING.md) - where the build actually
   happens (CI: the NDK has no arm64 host package, so the phone cannot build it).
 - [`docs/L4D1/TESTING.md`](docs/L4D1/TESTING.md) - testing a download and a
-  launch without Steam, content or a compiler.
+  launch without Steam, content or a compiler: `content --mounts`, `--trees`,
+  `--compare`, `vpk info`, `find`.
 
 Launcher quick start (needs your own Steam copy, no content is bundled):
 
@@ -119,7 +135,7 @@ On device, `launcher/android/main.cpp` reads `$APP_DATA_PATH/port.cfg`
 Tooling tests do not need the engine build:
 
 ```sh
-scripts/test-tooling.sh   # 327 python tests + 67 C++ checks
+scripts/test-tooling.sh   # 468 python tests + 67 C++ checks
 ```
 
 # Fork note

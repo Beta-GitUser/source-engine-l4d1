@@ -383,6 +383,12 @@ VideoResult_t CBinkMaterial::SoundDeviceCommand( VideoSoundDeviceOperation_t ope
 {
 	AssertExitV( m_bMovieInitialized || m_bMoviePlaying, VideoResult::OPERATION_OUT_OF_SEQUENCE );
 
+	// The engine hands the movie its audio device through here, so a boot that dies
+	// around the intro should be readable: which operation it asked for, and which
+	// one this module answers "not supported" to. Without this the only visible
+	// symptom of a missing audio hook is a process that stops.
+	Msg( "video_bink: SoundDeviceCommand( operation %d )\n", (int)operation );
+
 	switch( operation )
 	{
 		// On win32, we try and create an audio context from a GUID
@@ -937,6 +943,23 @@ void CBinkMaterial::OpenMovie( const char *theMovieFileName )
  		SetResult( VideoResult::FILE_ERROR_OCCURED ) ;
 		Reset();
 		return;
+	}
+
+	{
+		// Say what the container actually holds. Bink Audio is a real track in these
+		// files; whether it is decoded yet is a separate question from whether it is
+		// there, and the difference decides if HasAudio() can ever be true.
+		int nAudioStreams = 0;
+		for ( unsigned int i = 0; i < m_AVFmtCtx->nb_streams; ++i )
+		{
+			if ( m_AVFmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO )
+			{
+				++nAudioStreams;
+			}
+		}
+		Msg("video_bink: %s opened, %u stream(s), %d audio, duration %.2fs\n",
+			theMovieFileName, m_AVFmtCtx->nb_streams, nAudioStreams,
+			m_AVFmtCtx->duration > 0 ? (double)m_AVFmtCtx->duration / AV_TIME_BASE : 0.0);
 	}
 
 	if (open_codec_context(&m_AVVideoStreamID, &m_AVVideoDecCtx, m_AVFmtCtx, AVMEDIA_TYPE_VIDEO) == 0)

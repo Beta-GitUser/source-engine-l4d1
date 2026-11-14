@@ -76,6 +76,11 @@ bool CBinkVideoSubSystem::Connect( CreateInterfaceFn factory )
 		Msg( "Bink video subsystem failed to connect to missing a required system\n" );
 		return false;
 	}
+
+	// One line, once per boot: if a log has no line like this, the engine never
+	// asked for the Bink subsystem at all and nothing below it can be the fault.
+	Msg( "video_bink: connected (%s), extensions: .bik, feature: PLAY_VIDEO_FILE_IN_MATERIAL\n",
+		 VIDEO_SUBSYSTEM_INTERFACE_VERSION );
 	return true;
 }
 
