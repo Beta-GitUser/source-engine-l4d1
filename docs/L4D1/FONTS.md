@@ -37,6 +37,38 @@ Stages 1–4 are one-time, at scheme load; 5–6 are per control; 7 is per tap.
   the same rectangle, so a tap can land tens of pixels off — enough to miss a
   button while the cursor is visibly somewhere else.
 
+## What this device's log actually says
+
+Line counts from `engine-2.log` (one `-nosound -novid` boot), which settle the order
+of the stages:
+
+```
+[7.59]  LoadLibrary: libGameUI.so
+[7.69]  ERROR 2: UNABLE TO LOAD FONT FILE resource/HALFLIFE2.vfont
+[7.74]  ERROR 2: UNABLE TO LOAD FONT FILE resource/HL2EP2.vfont
+[7.84]  ERROR 2: UNABLE TO LOAD FONT FILE resource/TG.vfont
+[7.84]  ERROR 2: UNABLE TO LOAD FONT FILE resource/TGB.vfont
+[7.845] Found font: /data/user/0/com.valvesoftware.source/files/LiberationMono-Regular.ttf
+[7.846] Failed to load custom font file '…/LiberationMono-Regular.ttf'
+        … 1190 times in total, 1074 of them dejavusans-bold.ttf / dejavusans.ttf
+```
+
+* 1190 `Found font:` and **1190** `Failed to load custom font file`: every single
+  font the UI asks for dies at stage 3. There is no font in the process at all, so
+  every label is empty and every control sized by its text is zero-sized.
+* 9 `UNABLE TO LOAD FONT FILE`, all `.vfont`: those four files in `CustomFontFiles`
+  were **read successfully** and rejected by FreeType at stage 4. Stage 3 is not
+  broken for files inside the search paths — only for absolute host paths.
+* `resource/marlett.ttf`, the fifth `CustomFontFiles` entry, logs nothing: it is a
+  real TTF inside the search paths, so it loaded. Another proof that the read path
+  works and only the host path fails.
+* The scheme's fonts are **system names** — Tahoma, Courier New, Lucida Console,
+  Tahoma Bold. `l4d1ctl fonts` reports 11 of them with no `"custom"` path, so the
+  `.vfont` files are auxiliary (crosshair and tool glyph sets), not the UI's text.
+
+So: stage 4 is real but irrelevant to text, and stage 3 is the one that matters.
+That is what the direct read in `FontDataHelper` fixes.
+
 ## The check that answers it without a build
 
 ```sh
@@ -44,32 +76,37 @@ python3 -m l4d1ctl fonts --root /storage/emulated/0/srceng/left4dead
 ```
 
 ```
-scheme: /storage/emulated/0/srceng/left4dead/resource/SourceScheme.res
-        3 font(s), 2 on .vfont (cannot load here), 1 on a system font name
+scheme: /storage/emulated/0/srceng/left4dead/resource/sourcescheme.res
+        11 font(s), 11 on a system font name
 
 CustomFontFiles:
   resource/HALFLIFE2.vfont
-  resource/hl2crosshairs.vfont
+  resource/HL2EP2.vfont
+  resource/TG.vfont
+  resource/TGB.vfont
+  resource/marlett.ttf
 
 Fonts:
-  Default      HALFLIFE2 (resource/HALFLIFE2.vfont)  (tall 16, weight 500)
-  DefaultBold  HALFLIFE2 (resource/HALFLIFE2.vfont)  (tall 16, weight 700)
-  DefaultSmall Verdana  (tall 19)
+  DebugFixed            Courier New  (tall 10, weight 500)
+  Default               Tahoma  (tall 16, weight 500)
+  DefaultBold           Tahoma  (tall 16, weight 1000)
+  ...
+  UiBold                Tahoma  (tall 12, weight 1000)
 ```
 
 It exits non-zero when every font is a `.vfont`, because that verdict means no
-amount of fixing the read path (stage 3) can put text on screen. It also resolves
-the second way a scheme points at a custom font: L4D1 names the font `HALFLIFE2`
-rather than giving a `"custom"` path, and the file behind that name is
-`resource/HALFLIFE2.vfont`.
+amount of fixing the read path (stage 3) can put text on screen. It reads both
+shapes of `CustomFontFiles` — L4D1 numbers its entries (`"1" "resource/TG.vfont"`),
+other schemes write bare paths — and it resolves the other way a scheme names a
+custom font, by calling a font `HALFLIFE2` rather than giving it a `"custom"` path.
 
 Two outcomes, two projects:
 
 * **vfont-only** → either a `.vfont` reader in `CMatSystemSurface`'s font manager, or
   a scheme override that names a TTF. The reader is fidelity; the override is
   legibility today, at the price of L4D1's typeface.
-* **system names** → fontconfig answers, and the fix is the host-file read that is
-  already in this build.
+* **system names** (this port) → fontconfig answers with a host path, and the fix is
+  the direct read that is already in build `43621383992`.
 
 ## The checks, cheapest first
 

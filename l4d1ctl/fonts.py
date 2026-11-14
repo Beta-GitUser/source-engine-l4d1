@@ -29,6 +29,27 @@ from . import kv
 SCHEME_FILES = ("resource/SourceScheme.res", "resource/ClientScheme.res",
                 "resource/ui/scheme.res", "resource/scheme.res")
 
+# Extensions a scheme's CustomFontFiles block can name.
+FONT_EXTENSIONS = (".vfont", ".ttf", ".otf", ".ttc", ".fnt")
+
+# Keys that live *inside* a font block. Seeing one directly under Fonts means the
+# scheme's braces are unbalanced there, not that the font is called "name".
+FONT_ATTRIBUTES = frozenset({
+    "name", "custom", "tall", "weight", "blur", "scanlines", "antialias",
+    "additive", "outline", "rotary", "shadow", "border", "symbol", "bitmap",
+    "yres", "dropshadow", "resolution", "flags",
+})
+
+
+def _looks_like_font_path(text: str) -> bool:
+    """A path, not a numbered index. Valve writes CustomFontFiles as "1" "a.vfont"."""
+    candidate = text.strip().strip('"')
+    if not candidate:
+        return False
+    if "/" in candidate or "\\" in candidate:
+        return True
+    return candidate.lower().endswith(FONT_EXTENSIONS)
+
 
 @dataclass
 class SchemeFont:
@@ -66,6 +87,7 @@ class FontReport:
     parsed: bool = False
     error: str = ""
     custom_font_files: List[str] = field(default_factory=list)
+    unparsed_nodes: List[str] = field(default_factory=list)
     fonts: List[SchemeFont] = field(default_factory=list)
     missing_files: List[str] = field(default_factory=list)
 
@@ -137,12 +159,14 @@ def _custom_font_files(nodes: Sequence[kv.KVNode]) -> List[str]:
     block = _custom_font_files_block(nodes)
     if block is None:
         return []
-    # KeyValues pairs consecutive bare tokens as key/value, so "a.vfont" "b.vfont"
-    # arrives as one node whose key *and* value are paths. Both are entries.
+    # Two shapes are in the wild, and L4D1 uses both across its files: bare tokens
+    # ("a.vfont" "b.vfont" parses as key/value) and numbered indices
+    # ("1" "resource/HALFLIFE2.vfont"). Take whichever side of the pair is a path,
+    # and never the index.
     names: List[str] = []
     for child in block.children:
         for candidate in (child.key.strip(), (child.value or "").strip()):
-            if candidate and candidate not in names:
+            if _looks_like_font_path(candidate) and candidate not in names:
                 names.append(candidate)
     return names
 
@@ -188,6 +212,10 @@ def read(root: Path) -> FontReport:
         return report
 
     for child in block.children:
+        if child.key.isdigit() or child.key.strip().lower() in FONT_ATTRIBUTES:
+            # Unbalanced braces in the scheme put a font's insides here directly.
+            report.unparsed_nodes.append(child.key)
+            continue
         values = _font_values(child)
         font = SchemeFont(key=child.key)
         font.name = values.get("name") if "name" in values else ""
@@ -218,7 +246,7 @@ def read(root: Path) -> FontReport:
 
     game = scheme.parent.parent
     for name in report.custom_font_files:
-        if not (game / name).is_file() and not list(game.glob(name.replace(".vfont", ".ttf"))):
+        if not (game / name).is_file():
             report.missing_files.append(name)
     return report
 
@@ -249,6 +277,13 @@ def render(report: FontReport, *, limit: int = 40) -> List[str]:
             lines.append(f"  {font.key.ljust(width)}  {font.source}  ({', '.join(bits)})")
         if len(report.fonts) > limit:
             lines.append(f"  ... and {len(report.fonts) - limit} more")
+
+    if report.unparsed_nodes:
+        lines.append("")
+        lines.append(f"{len(report.unparsed_nodes)} node(s) under Fonts were not font")
+        lines.append("entries (" + ", ".join(sorted(set(report.unparsed_nodes))[:6]) +
+                     "): the scheme's braces are unbalanced there. Harmless for this")
+        lines.append("report, but it means the block it belongs to is not being read.")
 
     lines.append("")
     if report.vfont_only:

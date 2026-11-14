@@ -70,6 +70,52 @@ SCHEME_TTF = """Scheme
 """
 
 
+# L4D1's own shape: numbered indices in CustomFontFiles, system font names in Fonts.
+SCHEME_L4D1 = """Scheme
+{
+\tCustomFontFiles
+\t{
+\t\t"1"\t\t"resource/HALFLIFE2.vfont"
+\t\t"2"\t\t"resource/HL2EP2.vfont"
+\t\t"3"\t\t"resource/TG.vfont"
+\t\t"4"\t\t"resource/TGB.vfont"
+\t\t"5"\t\t"resource/marlett.ttf"
+\t}
+
+\tFonts
+\t{
+\t\tDebugFixed
+\t\t{
+\t\t\t"1"
+\t\t\t{
+\t\t\t\t"name"\t\t"Courier New"
+\t\t\t\t"tall"\t\t"10"
+\t\t\t\t"weight"\t"500"
+\t\t\t}
+\t\t}
+\t\tDefault
+\t\t{
+\t\t\t"1"
+\t\t\t{
+\t\t\t\t"name"\t\t"Tahoma"
+\t\t\t\t"tall"\t\t"16"
+\t\t\t\t"weight"\t"500"
+\t\t\t}
+\t\t}
+\t\tDefaultBold
+\t\t{
+\t\t\t"1"
+\t\t\t{
+\t\t\t\t"name"\t\t"Tahoma"
+\t\t\t\t"tall"\t\t"16"
+\t\t\t\t"weight"\t"1000"
+\t\t\t}
+\t\t}
+\t}
+}
+"""
+
+
 class FontSchemeTests(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp(prefix="fonts-"))
@@ -120,6 +166,37 @@ class FontSchemeTests(unittest.TestCase):
         report = fonts.read(self.game)
         self.assertEqual(report.fonts[0].source, "Verdana")
         self.assertFalse(report.fonts[0].is_vfont)
+
+    def test_numbered_custom_font_indices_are_not_taken_for_paths(self):
+        """L4D1 numbers its CustomFontFiles entries: "1" "resource/HALFLIFE2.vfont"."""
+        self.write_scheme(SCHEME_L4D1, ["resource/HALFLIFE2.vfont",
+                                        "resource/HL2EP2.vfont",
+                                        "resource/TG.vfont",
+                                        "resource/TGB.vfont",
+                                        "resource/marlett.ttf"])
+        report = fonts.read(self.game)
+        self.assertEqual(report.custom_font_files,
+                         ["resource/HALFLIFE2.vfont", "resource/HL2EP2.vfont",
+                          "resource/TG.vfont", "resource/TGB.vfont",
+                          "resource/marlett.ttf"])
+        self.assertEqual(report.missing_files, [])
+
+    def test_a_scheme_of_system_fonts_is_not_called_vfont_only(self):
+        """L4D1's fonts are Tahoma and Courier New, not the .vfont files it ships."""
+        self.write_scheme(SCHEME_L4D1, ["resource/HALFLIFE2.vfont"])
+        report = fonts.read(self.game)
+        self.assertFalse(report.vfont_only)
+        self.assertEqual(len(report.fonts), 3)
+        self.assertEqual(report.fonts[1].source, "Tahoma")
+        self.assertEqual(report.fonts[1].tall, "16")
+
+    def test_a_font_attribute_directly_under_fonts_is_flagged_not_counted(self):
+        """A stray "name" under Fonts is a brace problem in the scheme, not a font."""
+        broken = SCHEME_L4D1.replace("\t}\n}\n", "\t\tname\t\t\"Tahoma\"\n\t}\n}\n")
+        self.write_scheme(broken, ["resource/HALFLIFE2.vfont"])
+        report = fonts.read(self.game)
+        self.assertIn("name", report.unparsed_nodes)
+        self.assertEqual(len(report.fonts), 3)
 
     def test_no_scheme_is_an_error_not_a_traceback(self):
         report = fonts.read(self.game)
