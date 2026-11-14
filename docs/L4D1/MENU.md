@@ -78,6 +78,9 @@ in the file rendering as fallback glyphs.
 
 ## What to do, cheapest first
 
+0. **Work out which stage of the font chain is broken before touching it** —
+   [FONTS.md](FONTS.md) lists the seven stages, what each looks like in a log, and
+   the two shell commands that identify the one that is failing here.
 1. **Make the text legible.** `UNABLE TO LOAD FONT FILE resource/HALFLIFE2.vfont`
    (and HL2EP2/TG/TGB/Futurot/Toolbox) plus `Failed to load custom font file
    …/dejavusans.ttf` means the UI is drawing with fallbacks it also failed to
