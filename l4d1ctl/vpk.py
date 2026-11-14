@@ -31,6 +31,7 @@ is in ``<base>_<archive:03d>.vpk``.
 
 from __future__ import annotations
 
+import re
 import struct
 import zlib
 from dataclasses import dataclass, field
@@ -247,6 +248,35 @@ class VPK:
 
 def open_vpk(path: Path) -> VPK:
     return VPK(Path(path))
+
+
+# ``pak01_000.vpk`` .. ``pak01_999.vpk`` are data chunks of the ``pak01_dir.vpk``
+# tree, not packs: they have no tree of their own and must never be opened as one.
+DATA_PART = re.compile(r"_[0-9]{3}\.vpk$", re.IGNORECASE)
+
+
+def is_data_part(path: "Path | str") -> bool:
+    return bool(DATA_PART.search(Path(path).name))
+
+
+def is_pack(path: "Path | str") -> bool:
+    """True for a file that could be mounted as a pack on its own.
+
+    Not every game ships ``pak01_dir.vpk``: a self-contained VPK keeps its data in
+    the tree file and is just called ``pak01.vpk``. Both are mountable, so anything
+    scanning content for "is this file inside a pack" has to accept both - skipping
+    the data chunks, which would fail to parse and look like a broken pack.
+    """
+    path = Path(path)
+    return path.suffix.lower() == ".vpk" and not is_data_part(path)
+
+
+def packs_under(root: "Path | str") -> List[Path]:
+    """Every mountable pack below ``root``, sorted, data chunks excluded."""
+    root = Path(root).expanduser()
+    if not root.is_dir():
+        return []
+    return sorted(path for path in root.rglob("*") if path.is_file() and is_pack(path))
 
 
 def find_dir_vpk(folder: Path) -> Optional[Path]:

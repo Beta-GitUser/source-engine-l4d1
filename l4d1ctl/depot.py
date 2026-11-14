@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence
 
-from . import gamemod
+from . import gamemod, vpk
 from .paths import APPID, GAME_DIR_NAME
 
 # PC binaries are Windows/x86 leftovers. This port rebuilds game code, so they
@@ -108,12 +108,12 @@ def verify_game_dir(gamedir: Path) -> VerificationReport:
     else:
         report.checks.append(Check("fail", "gameinfo.txt missing - run `l4d1ctl init`"))
 
-    dir_vpks = sorted(p.name for p in gamedir.glob("*_dir.vpk"))
+    dir_vpks = sorted(p.name for p in gamedir.glob("*.vpk") if vpk.is_pack(p))
     if dir_vpks:
         report.checks.append(Check("ok", f"{len(dir_vpks)} VPK pack(s): {', '.join(dir_vpks[:4])}"
                                         + (" ..." if len(dir_vpks) > 4 else "")))
     else:
-        report.checks.append(Check("warn", "no *_dir.vpk found: content may not have been copied"))
+        report.checks.append(Check("warn", "no VPK pack found: content may not have been copied"))
 
     maps_dir = gamedir / "maps"
     bsps = list(maps_dir.glob("*.bsp")) if maps_dir.is_dir() else []

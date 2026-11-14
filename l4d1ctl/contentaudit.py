@@ -14,7 +14,7 @@ Two different things can cause that, and they need different fixes:
   * the file is genuinely not in the content that was downloaded.
 
 Guessing between them wastes an evening. This asks the question directly: it reads
-every ``*_dir.vpk`` under the game directory plus any loose files, and says where
+every mountable pack (``*_dir.vpk`` or a self-contained ``pak01.vpk``) plus any loose files, and says where
 each expected asset was found - or that it is nowhere.
 
 None of these four are fatal. They are engine fallbacks and a console backdrop; the
@@ -110,7 +110,7 @@ def trees(root: Path) -> List[TreeFinding]:
             if relative not in finding.loose:
                 finding.loose.append(relative)
 
-    for directory_vpk in sorted(root.rglob("*_dir.vpk")):
+    for directory_vpk in vpk.packs_under(root):
         try:
             archive = vpk.VPK(directory_vpk)
         except vpk.VPKError:
@@ -148,13 +148,13 @@ class AssetFinding:
 
 
 def _index(directory: Path) -> Dict[str, str]:
-    """path -> where it was found, across loose files and every *_dir.vpk."""
+    """path -> where it was found, across loose files and every mountable pack."""
     found: Dict[str, str] = {}
 
     for candidate in sorted(directory.rglob("*")):
         if not candidate.is_file():
             continue
-        if candidate.suffix.lower() == ".vpk" and candidate.stem.endswith("_dir"):
+        if vpk.is_pack(candidate):
             continue
         relative = candidate.relative_to(directory).as_posix().lower()
         found.setdefault(relative, "loose")
@@ -165,7 +165,7 @@ def _index(directory: Path) -> Dict[str, str]:
         if separator:
             found.setdefault(stripped, "loose")
 
-    for directory_vpk in sorted(directory.rglob("*_dir.vpk")):
+    for directory_vpk in vpk.packs_under(directory):
         try:
             archive = vpk.VPK(directory_vpk)
         except vpk.VPKError:
@@ -237,7 +237,7 @@ def find(root: Path, wanted: str) -> List[Hit]:
     for candidate in sorted(root.rglob("*")):
         if not candidate.is_file():
             continue
-        if candidate.suffix.lower() == ".vpk" and candidate.stem.endswith("_dir"):
+        if vpk.is_pack(candidate):
             continue
         relative = candidate.relative_to(root).as_posix()
         size = candidate.stat().st_size
@@ -248,7 +248,7 @@ def find(root: Path, wanted: str) -> List[Hit]:
             # inside left4dead/ is the same file as left4dead/scripts/x.txt here.
             consider(stripped, "loose", size, located=relative)
 
-    for directory_vpk in sorted(root.rglob("*_dir.vpk")):
+    for directory_vpk in vpk.packs_under(root):
         try:
             archive = vpk.VPK(directory_vpk)
         except vpk.VPKError:

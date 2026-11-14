@@ -72,6 +72,18 @@ content root: /storage/emulated/0/srceng
 missing from both the loose directories and every pack: resource/
 ```
 
+### A pack is any `.vpk`, not just `pak01_dir.vpk`
+
+L4D1's own content ships `left4dead/pak01.vpk` — a single self-contained VPK, data
+inside the tree file, no `_dir` in the name. Scanning for `*_dir.vpk` missed it
+entirely and made every audit report "this content has nothing" against a perfectly
+good install, so discovery is now: any `*.vpk` that is not a `<base>_nnn.vpk` data
+chunk (`vpk.packs_under`). One consequence worth knowing before reading a listing:
+that pack carries `materials/`, `models/` and `particles/` and nothing else — no
+`resource/`, no `scripts/`, no `shaders/`, no `sound/`, no `maps/`. Those are loose
+folders in `left4dead/`, which is exactly why a `pak01.vpk` listing is the wrong
+place to look for `GameMenu.res`.
+
 `absent` there is the one verdict no engine change can alter: the engine is asking
 for the file by name inside the same content root the audit just read. If a tree is
 present but the log still cannot find a file in it, that is a mounting or spelling

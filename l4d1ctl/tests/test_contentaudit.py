@@ -261,3 +261,59 @@ class TreeTests(unittest.TestCase):
         self.assertIn("missing from both the loose directories and every pack: resource/",
                       result.stdout)
         self.assertIn("No engine change can produce these files", result.stdout)
+
+
+class SelfContainedPackTests(unittest.TestCase):
+    """`pak01.vpk` with the data inside it is a pack; `pak01_000.vpk` is not.
+
+    Not every install has a `pak01_dir.vpk`: a self-contained VPK keeps its payload
+    in the tree file itself and is just called `pak01.vpk`, which is what the real
+    L4D1 content on a phone looks like. Scanning only `*_dir.vpk` made every audit
+    report "this content has nothing" against exactly those installs, so the
+    discovery rule is pinned here for all four readers.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="content-selfcontained-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, True))
+        self.game = self.dir / "left4dead"
+        self.game.mkdir()
+
+    def write_single_file_pack(self, files):
+        return vpk.build_vpk_v1(self.game / "pak01.vpk", files, split=False)
+
+    def test_the_pack_is_discovered_and_not_treated_as_loose(self):
+        self.write_single_file_pack({"materials/dev/identitylightwarp.vtf": b"vtf"})
+        packs = vpk.packs_under(self.dir)
+        self.assertEqual([p.name for p in packs], ["pak01.vpk"])
+        self.assertTrue(vpk.is_pack(self.game / "pak01.vpk"))
+        self.assertFalse(vpk.is_pack(self.game / "pak01_000.vpk"))
+
+    def test_data_chunks_are_never_opened_as_packs(self):
+        self.write_single_file_pack({"materials/dev/identitylightwarp.vtf": b"vtf"})
+        (self.game / "pak01_000.vpk").write_bytes(b"not a vpk tree")
+        self.assertEqual([p.name for p in vpk.packs_under(self.dir)], ["pak01.vpk"])
+
+    def test_the_boot_audit_finds_assets_in_a_self_contained_pack(self):
+        self.write_single_file_pack({path: b"vtf" for path in ALL_FOUR})
+        findings = {f.path: f for f in contentaudit.audit(self.dir)}
+        self.assertTrue(all(f.found for f in findings.values()))
+        self.assertEqual({f.found_in for f in findings.values()}, {"pak01.vpk"})
+
+    def test_trees_reads_a_self_contained_pack(self):
+        self.write_single_file_pack({
+            "materials/dev/x.vtf": b"vtf",
+            "models/player/x.mdl": b"mdl",
+        })
+        trees = {f.tree: f for f in contentaudit.trees(self.dir)}
+        self.assertEqual(trees["materials/"].packs, {"pak01.vpk": 1})
+        self.assertEqual(trees["models/"].packs, {"pak01.vpk": 1})
+        self.assertFalse(trees["resource/"].found)
+
+    def test_surfaceprops_reads_scripts_from_a_self_contained_pack(self):
+        from l4d1ctl import surfaceprops
+        self.write_single_file_pack({
+            "scripts/surfaceproperties.txt": b"\"Concrete\" {}",
+        })
+        hits = surfaceprops.list_surface_files(self.dir)
+        self.assertTrue(any(hit.source == "pak01.vpk" for hit in hits), hits)

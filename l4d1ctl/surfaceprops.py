@@ -19,7 +19,8 @@ the tests here pin both:
 
 So this module answers three questions separately:
 
-1. is the file anywhere in the content - loose, or inside any ``*_dir.vpk`` - and
+1. is the file anywhere in the content - loose, or inside any pack (``*_dir.vpk``
+   or a self-contained ``pak01.vpk``) - and
    under exactly the spelling the engine asks for;
 2. what would the engine get out of it: which files it names, and would any of
    them be skipped;
@@ -200,7 +201,7 @@ def usable(hit: contentaudit.Hit) -> bool:
     """Would the engine find this under the name it asks for?
 
     Pack lookups compare with ``V_stricmp`` (``filesystem/packfile.cpp``), so a
-    spelling difference inside a ``*_dir.vpk`` does not matter. A loose file is
+    spelling difference inside a pack does not matter. A loose file is
     whatever the filesystem says it is, so only an exact spelling resolves - the
     case-folded second look this branch added to the manifest loader aside.
     """
@@ -231,7 +232,7 @@ def list_surface_files(root: Path) -> List[contentaudit.Hit]:
             found.append(contentaudit.Hit(path=relative, source="loose",
                                           exact=True,
                                           size=candidate.stat().st_size))
-    for directory_vpk in sorted(root.rglob("*_dir.vpk")):
+    for directory_vpk in vpk.packs_under(root):
         try:
             archive = vpk.VPK(directory_vpk)
         except vpk.VPKError:
@@ -585,7 +586,7 @@ def _scripts_in(folder: Path):
         loose = sorted(entry.name for entry in scripts.rglob("*") if entry.is_file())
 
     packs = []
-    for directory_vpk in sorted(folder.glob("*_dir.vpk")):
+    for directory_vpk in sorted(p for p in folder.rglob("*") if p.is_file() and vpk.is_pack(p)):
         try:
             archive = vpk.VPK(directory_vpk)
         except vpk.VPKError:
