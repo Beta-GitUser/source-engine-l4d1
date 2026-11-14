@@ -317,6 +317,9 @@ class Report:
         if not usable(self.chosen):
             problems.append(f"it is spelled '{self.chosen.path}': a loose file only "
                             "the case-folded second look this branch added can find")
+        if outside := _outside_search_path(self.chosen):
+            problems.append(f"it sits in '{outside}/', which is not a folder the engine "
+                            "searches, so it is invisible to the load")
         if self.document is not None and self.document.missing_brace:
             problems.append('the file does not start with NAME { ... }: the engine '
                             'reports "missing {" and loads nothing')
@@ -518,17 +521,27 @@ def _where(hit: contentaudit.Hit, root: Path) -> str:
 SEARCHED_FOLDERS = ("scripts", "left4dead", "left4dead_dlc3", "hl2", "platform")
 
 
-def _search_path_note(hit: contentaudit.Hit) -> str:
-    """A loose file is only visible where the engine looks, and that is not everywhere."""
+def _outside_search_path(hit: contentaudit.Hit) -> str:
+    """The folder that hides this file from the engine, or "" if it is reachable.
+
+    A loose file is only visible where the engine looks, and that is the game
+    directory, the DLC folders next to it, hl2/ and platform/ - never an arbitrary
+    folder that happens to be under the same parent.
+    """
     if hit.in_pack:
         return ""
     parts = hit.located.split("/")
     if len(parts) < 2:
         return ""
-    folder = parts[0].lower()
-    if folder in SEARCHED_FOLDERS:
+    folder = parts[0]
+    return "" if folder.lower() in SEARCHED_FOLDERS else folder
+
+
+def _search_path_note(hit: contentaudit.Hit) -> str:
+    folder = _outside_search_path(hit)
+    if not folder:
         return ""
-    return (f"note: '{parts[0]}/' is not one of the folders the engine searches "
+    return (f"note: '{folder}/' is not one of the folders the engine searches "
             "(left4dead/, hl2/, platform/), so it cannot see this file there")
 
 
@@ -671,4 +684,12 @@ def render(report: Report) -> str:
         lines.append("verdict: the manifest is there but does not work as intended")
         for problem in report.problems:
             lines.append(f"  - {problem}")
+        folder = _outside_search_path(report.chosen)
+        if folder:
+            lines.append("")
+            lines.append(f"The engine looks in the game directory ({folder} is the "
+                         "game's sibling, not part of it). Either install the game's "
+                         "own scripts/ folder, or copy what this needs into it:")
+            lines.append(f"  mkdir -p left4dead/scripts && cp {folder}/scripts/"
+                         "surfaceproperties*.txt left4dead/scripts/")
     return "\n".join(lines)

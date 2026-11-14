@@ -515,6 +515,7 @@ def main(argv):
 
     print()
     problems = []
+    hidden_in = None
     if chosen is None:
         problems.append("the manifest is not in this content")
         code = 2
@@ -525,6 +526,12 @@ def main(argv):
             entries, bogus = [], []
         if data and kind == "loose-case":
             problems.append(f"it is spelled '{chosen}' as a loose file")
+        if data and kind in ("loose", "loose-case") and "/" in chosen:
+            folder = chosen.split("/")[0]
+            if folder.lower() not in SEARCHED:
+                hidden_in = folder
+                problems.append(f"it sits in '{folder}/', which is not a folder the "
+                                "engine searches, so it is invisible to the load")
         if missing_brace:
             problems.append('no { after the first name: the engine loads nothing')
         for name in bogus:
@@ -553,6 +560,13 @@ def main(argv):
         print("verdict: the manifest is there but does not work as intended")
         for problem in problems:
             print(f"  - {problem}")
+        if hidden_in:
+            print()
+            print(f"The engine looks in the game directory, and '{hidden_in}/' is the "
+                  "game's sibling rather than part of it. Either install the game's "
+                  "own scripts/ folder, or copy what this needs into it:")
+            print(f"  mkdir -p left4dead/scripts && cp {hidden_in}/scripts/"
+                  "surfaceproperties*.txt left4dead/scripts/")
     return code
 
 

@@ -77,6 +77,30 @@ class ListTests(unittest.TestCase):
         self.assertIn("  surfaceproperties", result.stdout)
         self.assertNotIn("  scripts/surfaceproperties.txt", result.stdout)
 
+    def test_extract_writes_one_entry_out_byte_for_byte(self):
+        payload = b'"concrete"\n{\n\t"density" "2300"\n}\n'
+        self.build({"scripts/surfaceproperties.txt": payload, "materials/a.vmt": b"y"})
+        target = self.root / "out.txt"
+        result = self.run_script(self.game / "pak01_dir.vpk", "--extract",
+                                 "scripts/surfaceproperties.txt", "--out", target)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(target.read_bytes(), payload)
+
+    def test_extract_follows_the_entry_into_its_part_file(self):
+        payload = b"from a part file" * 10
+        self.build({"scripts/big.txt": payload}, split=True)
+        target = self.root / "part.txt"
+        result = self.run_script(self.game / "pak01_dir.vpk", "--extract",
+                                 "scripts/big.txt", "--out", target)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(target.read_bytes(), payload)
+
+    def test_extract_of_a_name_that_is_not_there_exits_one(self):
+        self.build({"materials/a.vmt": b"y"})
+        result = self.run_script(self.game / "pak01_dir.vpk", "--extract", "scripts/nope")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("is not in", result.stderr)
+
     def test_write_dumps_every_entry_with_its_size(self):
         self.build({"scripts/a.txt": b"x" * 7, "materials/b.vmt": b"y"})
         target = self.root / "entries.txt"

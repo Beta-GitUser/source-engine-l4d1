@@ -225,15 +225,21 @@ class AuditTests(unittest.TestCase):
         text = surfaceprops.render(report)
         self.assertIn("garrysmod/scripts/surfaceproperties_manifest.txt", text)
         self.assertIn("cannot see this file there", text)
+        self.assertEqual(report.exit_code(), 1)
+        self.assertTrue(any("invisible to the load" in problem
+                            for problem in report.problems))
+        self.assertIn("mkdir -p left4dead/scripts", text)
 
     def test_a_manifest_inside_the_game_directory_is_not_flagged(self):
         scripts = self.game / "scripts"
         scripts.mkdir()
         (scripts / "surfaceproperties_manifest.txt").write_bytes(MANIFEST_TEXT)
         (scripts / "surfaceproperties_left4dead.txt").write_bytes(SURFACES_TEXT)
-        text = surfaceprops.render(surfaceprops.audit(self.root))
+        report = surfaceprops.audit(self.root)
+        text = surfaceprops.render(report)
         self.assertIn("left4dead/scripts/surfaceproperties_manifest.txt", text)
         self.assertNotIn("cannot see this file there", text)
+        self.assertEqual(report.exit_code(), 0, report.problems)
 
     def test_a_version_2_pack_is_read_with_all_its_scripts(self):
         """The truncation bug lived in the standalone readers; the package is pinned
@@ -354,9 +360,11 @@ class StandaloneScriptTests(unittest.TestCase):
         (foreign / "surfaceproperties_manifest.txt").write_bytes(MANIFEST_TEXT)
         (foreign / "surfaceproperties_left4dead.txt").write_bytes(SURFACES_TEXT)
         result = self._run(Path(handle.name))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("garrysmod/scripts/surfaceproperties_manifest.txt",
                       result.stdout)
         self.assertIn("cannot see this file there", result.stdout)
+        self.assertIn("mkdir -p left4dead/scripts", result.stdout)
 
     def test_a_data_part_is_refused_with_the_name_of_the_index(self):
         """pak01_000.vpk is raw data; only the _dir.vpk has an index."""

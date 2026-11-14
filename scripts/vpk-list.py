@@ -81,7 +81,8 @@ def parse(path):
                 crc, preload, archive, offset, length, terminator = struct.unpack_from(
                     "<IHHIIH", blob, pos)
                 pos += 18
-                pos += preload                      # preload bytes live in the tree
+                preload_bytes = blob[pos:pos + preload]   # data stored in the tree
+                pos += preload
                 stored = "" if folder.strip() in ("", " ") else folder
                 entries.append({
                     "path": f"{stored}/{name}.{extension}" if stored
@@ -91,6 +92,7 @@ def parse(path):
                     "extension": extension,
                     "crc": crc,
                     "preload": preload,
+                    "preload_bytes": preload_bytes,
                     "archive": archive,
                     "offset": offset,
                     "length": length,
@@ -116,6 +118,35 @@ def strings_in_tree(pack, limit):
             found.append((start + pos, text.decode("ascii")))
         pos = stop + 1
     return found
+
+
+def extract(pack, wanted, destination):
+    """Write one entry's bytes out, following it into its part file if need be."""
+    wanted = wanted.replace("\\", "/").lstrip("/").lower()
+    for entry in pack["entries"]:
+        if entry["path"].lower() != wanted:
+            continue
+        prefix = entry["preload_bytes"]
+        if entry["archive"] == 0x7FFF:
+            start = entry["offset"]
+            data = pack["blob"][start:start + entry["length"]]
+        else:
+            part = pack["path"].parent / pack["path"].name.replace(
+                "_dir.vpk", f"_{entry['archive']:03d}.vpk")
+            if not part.is_file():
+                raise SystemExit(f"{entry['path']} is stored in {part.name}, which is "
+                                 f"not there")
+            with part.open("rb") as handle:
+                handle.seek(entry["offset"])
+                data = handle.read(entry["length"])
+        blob = prefix + data
+        if len(blob) != entry["length"] + len(prefix):
+            raise SystemExit(f"{entry['path']}: expected "
+                             f"{entry['length'] + len(prefix)} bytes, read {len(blob)}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(blob)
+        return len(blob)
+    return None
 
 
 def data_present(pack):
@@ -259,6 +290,8 @@ def main(argv):
     folders_only = False
     as_json = False
     write_to = None
+    extract_what = None
+    extract_to = None
 
     index = 2
     while index < len(argv):
@@ -281,6 +314,12 @@ def main(argv):
         elif arg == "--write":
             index += 1
             write_to = Path(argv[index]).expanduser()
+        elif arg == "--extract":
+            index += 1
+            extract_what = argv[index]
+        elif arg == "--out":
+            index += 1
+            extract_to = Path(argv[index]).expanduser()
         else:
             print(f"unknown option {arg}", file=sys.stderr)
             return 2
@@ -297,6 +336,19 @@ def main(argv):
         lines = [f"{entry['length']:>10}\t{entry['path']}" for entry in entries]
         write_to.write_text("\n".join(lines) + "\n")
         print(f"wrote {len(lines)} entries to {write_to}")
+
+    if extract_what is not None:
+        destination = extract_to or Path(extract_what.replace("/", "_"))
+        try:
+            size = extract(pack, extract_what, destination)
+        except SystemExit as error:
+            print(error, file=sys.stderr)
+            return 1
+        if size is None:
+            print(f"{extract_what} is not in {target.name}", file=sys.stderr)
+            return 1
+        print(f"wrote {size} bytes of {extract_what} to {destination}")
+        return 0
 
     if as_json:
         print(json.dumps({"path": str(target), "version": pack["version"],

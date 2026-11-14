@@ -141,6 +141,15 @@ standalone ones now share that arithmetic and are tested against `build_vpk_v2`.
 as extension, then folder, then name, and a search for `scripts/surfaceproperties.txt`
 looks for bytes that are not there even when the file is. The parts of the name are.
 
+`--extract PATH --out FILE` writes one entry out byte for byte, following it into
+its part file if that is where the data lives — useful when the file the engine
+wants exists in some other game's pack:
+
+```sh
+python3 pyscripts/vpk-list.py garrysmod/garrysmod_dir.vpk \
+    --extract scripts/surfaceproperties.txt --out /tmp/surfaceproperties.txt
+```
+
 A `pak01_000.vpk` data part is refused by name: parts have no header and no index,
 their first bytes are whatever file starts there.
 
@@ -191,7 +200,19 @@ manifest:  scripts/surfaceproperties_manifest.txt
            a loose file at garrysmod/scripts/surfaceproperties_manifest.txt, 595 bytes
            note: 'garrysmod/' is not one of the folders the engine searches
            (left4dead/, hl2/, platform/), so it cannot see this file there
+
+verdict: the manifest is there but does not work as intended
+  - it sits in 'garrysmod/', which is not a folder the engine searches, so it is
+    invisible to the load
+
+The engine looks in the game directory, and 'garrysmod/' is the game's sibling
+rather than part of it. Either install the game's own scripts/ folder, or copy
+what this needs into it:
+  mkdir -p left4dead/scripts && cp garrysmod/scripts/surfaceproperties*.txt left4dead/scripts/
 ```
+
+A file that resolves but cannot be seen is a failure, not a success: the exit code
+is 1, because the engine's load will still fail on it.
 
 Both print what they actually read before saying anything about the manifest — one
 line per `*_dir.vpk` with its version, entry count and how many entries are under
