@@ -7,18 +7,17 @@ short for this reason, so the mapping is written down here.
 
 And a warning that cost one of those downloads: **the depot names are historical
 labels, not tables of contents.** Depot 501 is called "Left 4 Dead binaries" and is
-where the loose `resource/`, `scripts/`, `cfg/` client-side trees actually live —
-the ones whose absence was killing the boot in `Resource\GameMenu.res`. Whoever
-decided in 2008 that the VGUI layouts belonged with the client binary did not name
-it that way on SteamDB. Read the depot contents, not the label.
+where the loose `resource/`, `scripts/`, `cfg/` client-side trees and the `hl2/` game
+folder actually live — and `hl2/` is why a boot log for an L4D1-only install mounts
+`hl2/` at all. Read the depot contents, not the label.
 
 ## The depots of app 500
 
-| Depot | Name | Size | What lands in `left4dead/` |
+| Depot | Name | Size | What it puts in `Left 4 Dead/` |
 | --- | --- | --- | --- |
-| 501 | Left 4 Dead binaries | ~289 MiB | `bin/` and the **loose client-side trees**: `resource/` (`GameMenu.res`, `*UIPanel.res`, `valve_english.txt`), `scripts/`, `cfg/`, and what ships beside them. Confirmed by extracting it after three downloads omitted it on the strength of its name. The Windows DLLs in here are *not* used — this port ships its own |
+| 501 | Left 4 Dead binaries | ~289 MiB | The **Source base, not just binaries**: `left4dead/resource`, `left4dead/scripts`, `left4dead/cfg`, the **`hl2/` game folder**, and `bin/`. Confirmed by extracting it after three downloads omitted it on the strength of its name. None of its Windows DLLs are used — this port ships its own |
 | 502 | Left 4 Dead **base** | ~3.58 GiB | `pak01_dir.vpk` + `pak01_000..059.vpk`, `maps/`, `materials/`, `models/`, `particles/`, `scenes/`, `media/`, `missions/`, `reslists/`, `gfx/` — the assets, not the UI definitions |
-| 503 | Left 4 Dead client binary | — | the client executable |
+| 503 | Left 4 Dead client binary | — | `left4dead.exe` and the win32 client binaries; no matchmaking binaries, nothing this port loads. Safe to skip |
 | 504 | Left 4 Dead **sound** | — | `sound/`: footsteps, weapons, infected, ambience |
 | 505… | Left 4 Dead **localisations** (505 french, …) | — | the per-language `resource/*_<lang>.txt` tables |
 
@@ -40,6 +39,26 @@ Consequences, in the order they surprise people:
   A hole in that numbering (e.g. no `pak01_048.vpk`) is a broken download, and
   `l4d1ctl vpk info` reports it by comparing the numbering rather than only the
   chunks the tree references.
+
+### 501 is the Source base, which is why `hl2/` exists at all
+
+Extracting 501 answers a question the boot log raises every time: *why is the engine
+mounting `hl2/` if this is an L4D1 install?* Because 501 ships it. The depot is the
+L4D1-era **shared Source base**, and it lands three separate things in
+`Left 4 Dead/`:
+
+```
+left4dead/resource, left4dead/scripts, left4dead/cfg     the client-side trees 502 lacks
+hl2/                                                     the shared HL2 game folder
+bin/                                                     win32 binaries - not used here
+```
+
+That also means the surface properties resolve out of `left4dead/scripts/` as soon as
+501 is in place, with no staging and no fallback to `hl2/`'s copy — which was the
+wrong data to load for L4D1 surfaces anyway.
+
+A base-only (502) download therefore has *no* `hl2/` folder, and the `hl2` search path
+in `gameinfo.txt` is a hole rather than a mount.
 
 ## The sibling folder: `left4dead_dlc3` is The Sacrifice
 
