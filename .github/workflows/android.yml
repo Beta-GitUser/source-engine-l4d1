@@ -150,6 +150,15 @@ jobs:
           echo "--- tail of build/config.log ---"
           tail -n 25 build/config.log | annotate || true
         fi
+        # What actually happened, in order: the script's own log, and the FFmpeg
+        # configure/build logs it writes before waf is even called.
+        echo "--- tail of build-android.log ---"
+        tail -n 40 build-android.log | annotate || true
+        for f in .ffmpeg/configure-*.log .ffmpeg/build-*.log; do
+          [ -f "$f" ] || continue
+          echo "--- tail of $f ---"
+          tail -n 20 "$f" | annotate || true
+        done
 
     - name: Collect libraries
       if: always()
