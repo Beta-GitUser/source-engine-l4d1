@@ -84,6 +84,31 @@ that pack carries `materials/`, `models/` and `particles/` and nothing else — 
 folders in `left4dead/`, which is exactly why a `pak01.vpk` listing is the wrong
 place to look for `GameMenu.res`.
 
+### When the download itself is the suspect
+
+Whole folders missing (`resource/`, `scripts/`, `sound/`, `cfg/`) while the pack
+chunks are all present is not what packet loss looks like — DepotDownloader fetches
+per file and reports a failed chunk rather than skipping it. It is what a *partial
+depot selection* or a run that died (out of space, interrupted) leaves behind.
+
+Two checks, both local:
+
+* `python3 -m l4d1ctl vpk info /storage/emulated/0/srceng/left4dead` — reads the
+  `pak01_dir.vpk` tree and reports holes in the `000..059` part numbering, including
+  a hole no entry references. Valve numbers parts contiguously, so a gap is a gap.
+* `python3 -m l4d1ctl content --trees --root …` — which trees exist, loose or packed.
+
+And the re-run that costs the least bandwidth: the same DepotDownloader command with
+`-validate` and **no** `-depot`, so the whole app's depot set is in scope and only
+files that are missing or fail their checksum are fetched
+(`-validate` = "include checksum verification of files already downloaded"). If the
+folders still do not appear, the depots carrying them were never selected. SteamCMD
+solves that by construction, since it resolves the depot set from the app:
+
+```bat
+steamcmd +force_install_dir D:\l4d1 +login <user> +app_update 500 validate +quit
+```
+
 `absent` there is the one verdict no engine change can alter: the engine is asking
 for the file by name inside the same content root the audit just read. If a tree is
 present but the log still cannot find a file in it, that is a mounting or spelling

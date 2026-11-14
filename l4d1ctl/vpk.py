@@ -72,18 +72,48 @@ class VPKInfo:
     entries: List[VPKEntry] = field(default_factory=list)
 
     @property
+    def base_name(self) -> str:
+        """``pak01`` for both ``pak01_dir.vpk`` and a self-contained ``pak01.vpk``."""
+        base = self.path.name
+        if base.lower().endswith("_dir.vpk"):
+            return base[: -len("_dir.vpk")]
+        return self.path.stem
+
+    @property
     def parts(self) -> List[Path]:
         """Expected ``_nnn.vpk`` part files for this dir VPK."""
-        base = self.path.name
-        if base.endswith("_dir.vpk"):
-            base = base[: -len("_dir.vpk")]
-        else:
-            base = self.path.stem
         used = sorted({e.archive for e in self.entries if not e.stored_in_dir})
-        return [self.path.parent / f"{base}_{index:03d}.vpk" for index in used]
+        return [self.path.parent / f"{self.base_name}_{index:03d}.vpk" for index in used]
+
+    def parts_on_disk(self) -> Dict[int, Path]:
+        """``{index: path}`` for every ``<base>_nnn.vpk`` sitting next to the tree."""
+        found: Dict[int, Path] = {}
+        pattern = self.base_name + "_[0-9][0-9][0-9].vpk"
+        for candidate in self.path.parent.glob(pattern):
+            match = DATA_PART.search(candidate.name)
+            if match and candidate.is_file():
+                found[int(match.group(0)[1:4])] = candidate
+        return found
 
     def missing_parts(self) -> List[Path]:
+        """Parts the tree needs that are not on disk."""
         return [part for part in self.parts if not part.is_file()]
+
+    def missing_any_parts(self) -> List[Path]:
+        """Every gap in the ``000..highest`` numbering, referenced or not.
+
+        A tree only references the chunks it stores data in, so a hole in the
+        numbering can hide: entries 0..47 and 49..59 all parse, the pack looks
+        fine, and the chunk that went missing reads as "no data lost". Valve
+        numbers parts contiguously, so a hole is a hole - an interrupted or
+        out-of-space download, which is worth saying out loud rather than
+        discovering later as one unreadable texture.
+        """
+        on_disk = self.parts_on_disk()
+        referenced = {e.archive for e in self.entries if not e.stored_in_dir}
+        highest = max(referenced | set(on_disk) | {-1})
+        return [self.path.parent / f"{self.base_name}_{index:03d}.vpk"
+                for index in range(highest + 1) if index not in on_disk]
 
 
 def _read_cstring(data: bytes, pos: int) -> Tuple[str, int]:
@@ -217,8 +247,9 @@ class VPK:
     def verify(self) -> List[str]:
         """Structural checks; returns human-readable problems."""
         problems: List[str] = []
-        for part in self.info.missing_parts():
-            problems.append(f"missing part file: {part.name}")
+        for part in self.info.missing_any_parts():
+            problems.append(f"missing part file: {part.name} (the pack has a hole in "
+                            f"its numbering: re-download or validate the content)")
         for entry in self.info.entries:
             if entry.length == 0 and entry.preload == b"":
                 problems.append(f"zero-length entry: {entry.path}")

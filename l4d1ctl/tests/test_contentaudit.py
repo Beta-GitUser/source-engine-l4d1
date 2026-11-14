@@ -317,3 +317,39 @@ class SelfContainedPackTests(unittest.TestCase):
         })
         hits = surfaceprops.list_surface_files(self.dir)
         self.assertTrue(any(hit.source == "pak01.vpk" for hit in hits), hits)
+
+
+class PartNumberingTests(unittest.TestCase):
+    """A hole in `pak01_000..059` is a hole, referenced or not.
+
+    The pack on the phone parsed fine and reported no missing parts, because the
+    tree only names the chunks it stores data in - index 48 vanished without any
+    entry pointing at it. Valve numbers parts contiguously, so the gap itself is
+    the evidence, and it should be reported as such rather than discovered later
+    as one unreadable file.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="part-numbering-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, True))
+
+    def build(self):
+        return vpk.build_vpk_v1(self.dir / "pak01_dir.vpk",
+                                {"materials/dev/x.vtf": b"vtf"}, split=True)
+
+    def test_a_contiguous_set_is_clean(self):
+        self.build()
+        self.assertEqual(vpk.VPK(self.dir / "pak01_dir.vpk").verify(), [])
+
+    def test_a_hole_nothing_references_is_still_reported(self):
+        self.build()
+        (self.dir / "pak01_002.vpk").write_bytes((self.dir / "pak01_000.vpk").read_bytes())
+        problems = vpk.VPK(self.dir / "pak01_dir.vpk").verify()
+        self.assertTrue(any("pak01_001.vpk" in p for p in problems), problems)
+        self.assertFalse(any("pak01_002.vpk" in p for p in problems), problems)
+
+    def test_a_missing_referenced_part_is_reported_once(self):
+        self.build()
+        (self.dir / "pak01_000.vpk").unlink()
+        problems = vpk.VPK(self.dir / "pak01_dir.vpk").verify()
+        self.assertEqual(len([p for p in problems if "pak01_000.vpk" in p]), 1, problems)
