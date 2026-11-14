@@ -237,6 +237,24 @@ jobs:
           *) expect="x86" ;;
         esac
         status=0
+        # video_bink is the one module that links a third-party library. It is
+        # linked statically, so an unresolved av* symbol means the FFmpeg prefix
+        # was found at configure time and empty at link time - which the device
+        # would report as a dlopen failure naming libvideo_bink.so and nothing
+        # else.
+        if [ -f out/libvideo_bink.so ]; then
+          echo "::notice title=video module::$(wc -c < out/libvideo_bink.so) bytes in libvideo_bink.so"
+          undef=$(readelf -Ws out/libvideo_bink.so | awk '$7 == "UND" && $8 ~ /^av/ {print $8}' | sort -u | tr '\n' ' ')
+          if [ -n "$undef" ]; then
+            echo "::error::libvideo_bink.so has unresolved FFmpeg symbols: $undef"
+            status=1
+          else
+            echo "::notice title=video module::no unresolved av* symbols - FFmpeg is linked in"
+          fi
+        else
+          echo "::warning::no libvideo_bink.so - the Bink module did not build"
+        fi
+
         for name in libclient.so libserver.so; do
           file="out/$name"
           if [ ! -f "$file" ]; then

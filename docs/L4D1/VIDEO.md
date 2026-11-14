@@ -1,9 +1,15 @@
 # Bink video, and what it took to play it
 
-Status: **built**. `libvideo_bink.so` is part of the artifact when FFmpeg is
-available at configure time, decodes `.bik` through libavformat/libavcodec, and
-draws into a material. The movie is **silent** — audio is the remaining half of
-the work, and it is the last section of this page.
+Status: **built, in CI, not yet seen on a device.** `libvideo_bink.so` is the
+28th module in the Android artifact (build run 43585718858, green), and it decodes
+`.bik` through libavformat/libavcodec into a material. Two things are still
+unproven: that a device boot actually draws the movie, and that the frame pacing
+holds. The movie is **silent** — audio is the remaining half of the work, and it
+is the last section of this page.
+
+What to check on the phone, in this order: `libvideo_bink.so` present next to the
+engine, no `Can't find module - video_bink.so` in the log, then
+`CBinkMaterial::OpenMovie(...)` followed by `Video FPS: …` and a picture.
 
 ## What a `.bik` is
 
@@ -75,6 +81,16 @@ sh scripts/build-android.sh                  # builds FFmpeg first, then the eng
 FFMPEG=0 sh scripts/build-android.sh         # old behaviour: no video module
 FFMPEG_ROOT=/opt/ffmpeg-aarch64 sh scripts/build-android.sh   # reuse a prefix
 ```
+
+The first real build of this module stopped twice, and both failures are worth
+knowing about if it ever stops again:
+
+* `Can't find env cache video/video_bink` — the project was added to the list
+  `build()` walks but not the one `configure()` walks, so no environment was
+  saved for it. It fails in 20 seconds, before a single file is compiled, and
+  looks like a compile error in any summary.
+* `yuv_rgb.c:6:23: fatal error: emmintrin.h` — the YUV→RGB helper is x86 code
+  that upstream includes the SSE2 header for unconditionally. Now guarded.
 
 FFmpeg lives in `.ffmpeg/<arch>` (git-ignored, cached in CI by
 `FFMPEG_VERSION`). A finished prefix is reused until the version changes; the
