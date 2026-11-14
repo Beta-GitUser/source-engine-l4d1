@@ -46,6 +46,85 @@ BOOT_ASSETS = (
 )
 
 
+# The top-level trees the engine asks for by name. If one of these is absent from
+# both the loose directories and every pack, the log lines that follow it are
+# content, not code - and no amount of engine patching will produce the files.
+CONTENT_TREES = (
+    ("resource/", "UI layouts and localisation: GameMenu.res, valve_english.txt, *UIPanel.res"),
+    ("shaders/", "precompiled shader blobs; without them every material fails to build"),
+    ("materials/", "textures and material definitions"),
+    ("models/", "model geometry and animations"),
+    ("sound/", "sound files and the sound cache"),
+    ("scripts/", "surface properties, vehicle/talker scripts, plugin lists"),
+    ("maps/", "the maps themselves"),
+    ("cfg/", "config files the engine execs at boot"),
+)
+
+
+@dataclass
+class TreeFinding:
+    """One expected top-level tree, and everywhere it exists under the root."""
+
+    tree: str
+    description: str
+    loose: List[str] = field(default_factory=list)      # directories, relative
+    packs: Dict[str, int] = field(default_factory=dict)  # pack name -> entries
+
+    @property
+    def found(self) -> bool:
+        return bool(self.loose or self.packs)
+
+    def where(self) -> str:
+        parts = []
+        if self.loose:
+            parts.append("loose: " + ", ".join(self.loose))
+        for pack, count in sorted(self.packs.items()):
+            parts.append(f"{pack}: {count} entries")
+        return "; ".join(parts) if parts else "absent"
+
+
+def trees(root: Path) -> List[TreeFinding]:
+    """Where each expected top-level tree lives: a loose folder, a pack, or nowhere.
+
+    The engine mounts the game directory and, through gameinfo.txt, its siblings -
+    so a tree is lost either by not being in the content at all or by being in a
+    folder none of those search paths covers.
+    """
+    root = Path(root).expanduser()
+    findings = [TreeFinding(tree=name, description=description)
+                for name, description in CONTENT_TREES]
+    by_name = {finding.tree: finding for finding in findings}
+    if not root.is_dir():
+        return findings
+
+    candidates = [root] + [entry for entry in sorted(root.iterdir())
+                           if entry.is_dir() and not entry.name.startswith(".")]
+    for base in candidates:
+        for entry in sorted(base.iterdir()) if base.is_dir() else []:
+            if not entry.is_dir():
+                continue
+            finding = by_name.get(entry.name.lower() + "/")
+            if finding is None:
+                continue
+            relative = entry.relative_to(root).as_posix() + "/"
+            if relative not in finding.loose:
+                finding.loose.append(relative)
+
+    for directory_vpk in sorted(root.rglob("*_dir.vpk")):
+        try:
+            archive = vpk.VPK(directory_vpk)
+        except vpk.VPKError:
+            continue
+        counts: Dict[str, int] = {}
+        for entry in archive:
+            head = entry.path.split("/")[0].lower() + "/"
+            if head in by_name:
+                counts[head] = counts.get(head, 0) + 1
+        for head, count in counts.items():
+            by_name[head].packs[directory_vpk.name] = count
+    return findings
+
+
 @dataclass
 class AssetFinding:
     path: str

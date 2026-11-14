@@ -458,6 +458,34 @@ def cmd_module(args: argparse.Namespace) -> int:
     return 2
 
 
+def _print_trees(root: Path, json_output: bool = False) -> int:
+    findings = contentaudit.trees(root)
+    if json_output:
+        print(json.dumps({f.tree: {"where": f.where(), "loose": f.loose,
+                                   "packs": f.packs, "found": f.found}
+                          for f in findings}, indent=2))
+        return 0
+
+    print(f"content root: {root}")
+    print()
+    width = max(len(f.tree) for f in findings)
+    for finding in findings:
+        print(f"  {finding.tree.ljust(width)}  {finding.where()}")
+        if not finding.found:
+            print(f"  {'':{width}}  -> {finding.description}")
+
+    absent = [f.tree for f in findings if not f.found]
+    print()
+    if not absent:
+        print("every tree the engine names at boot is somewhere under this root. A")
+        print("'couldn't find' line in the log is then a search-path problem, not content.")
+    else:
+        print("missing from both the loose directories and every pack: " + ", ".join(absent))
+        print("No engine change can produce these files - the engine asks for them by")
+        print("name in this very content tree. Re-download/verify the files, don't patch.")
+    return 0
+
+
 def cmd_content(args: argparse.Namespace) -> int:
     if args.root:
         root = Path(args.root).expanduser()
@@ -468,6 +496,9 @@ def cmd_content(args: argparse.Namespace) -> int:
     if not root.is_dir():
         print(f"no such directory: {root}", file=sys.stderr)
         return 2
+
+    if args.trees:
+        return _print_trees(root, json_output=args.json)
 
     findings = contentaudit.audit(root)
     if args.json:
@@ -959,6 +990,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("content", help="check the content for assets the engine asks for at boot")
     p.add_argument("--root", help="game directory to scan (default: the resolved one)")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--trees", action="store_true",
+                   help="where each top-level tree (resource/, shaders/, scripts/) lives, "
+                        "or that it is missing from the content entirely")
     p.set_defaults(func=cmd_content)
 
     p = sub.add_parser("surface",

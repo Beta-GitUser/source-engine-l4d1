@@ -47,6 +47,46 @@ python3 -m l4d1ctl content --json               # for the launcher UI
 cannot find it, the problem is mounting, not content. `[absent]` means the download
 lacks it, and nothing in this repository can conjure it up.
 
+### Whole trees, not single files
+
+A log that asks for `Resource/GameMenu.res`, `EngineVGuiLayout.res`,
+`valve_english.txt`, `surfaceproperties_left4dead.txt` and half a dozen `_vs20`
+shaders in one boot is not six problems. It is usually one: whole directories
+(`resource/`, `shaders/`, `scripts/`) are not in the content at all. `--trees` asks
+that question directly, and answers it per tree instead of per line:
+
+```sh
+python3 -m l4d1ctl content --trees --root /storage/emulated/0/srceng
+```
+
+```
+content root: /storage/emulated/0/srceng
+
+  resource/   absent
+              -> UI layouts and localisation: GameMenu.res, valve_english.txt, *UIPanel.res
+  shaders/    in pak01_dir.vpk: 4210 entries
+  materials/  loose: left4dead/materials/; pak01_dir.vpk: 91187 entries
+  scripts/    loose: left4dead/scripts/
+  …
+
+missing from both the loose directories and every pack: resource/
+```
+
+`absent` there is the one verdict no engine change can alter: the engine is asking
+for the file by name inside the same content root the audit just read. If a tree is
+present but the log still cannot find a file in it, that is a mounting or spelling
+question and `find` is the tool for it (see below).
+
+Two sources feed `shaders/`, and both are content: at runtime the engine opens
+`shaders/vsh/<name>.vcs` and, failing that, `shaders/fxc/<name>.vcs`
+(`materialsystem/shaderapidx9/vertexshaderdx8.cpp`, `OpenFileAndLoadHeader`). When
+neither opens it prints `Couldn't load vertex shader <name>_vs20`. So that line means
+the blob is not in the content — not that the engine lacks a compiler. The debug
+shaders (`FillRate`, `DebugLuxels`, `DebugNormalMap`, `DebugDepth`,
+`DebugDrawEnvmapMask`) are a separate, expected miss: their sources are commented out
+of `materialsystem/stdshaders/wscript` in the `stdshader_dbg` block, so no build of
+this port ships them and `unknown shader` for those names is cosmetic.
+
 The `Requested non-existent write path MOD!` spam that accompanies these lines is
 also upstream's: nothing registers a path under the ID `MOD` (or its `mod_write`
 twin), so every write goes through `GetWritePath()`, misses, warns, and lands on

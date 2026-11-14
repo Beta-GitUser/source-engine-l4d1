@@ -198,3 +198,66 @@ class CommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TreeTests(unittest.TestCase):
+    """Which top-level trees exist at all - the answer to "is my content whole?".
+
+    When resource/ and shaders/ are missing wholesale the boot log fills with
+    lines that look like engine bugs; they are a content download that never
+    finished. The audit has to say which trees are absent *everywhere*, because
+    that is the one verdict no engine patch can change.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="content-trees-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, True))
+        self.game = self.dir / "left4dead"
+        self.game.mkdir()
+
+    def by_tree(self, root=None):
+        return {f.tree: f for f in contentaudit.trees(root or self.dir)}
+
+    def test_trees_inside_an_archive_are_found_and_counted(self):
+        vpk.build_vpk_v1(self.game / "pak01_dir.vpk", {
+            "resource/GameMenu.res": b"res",
+            "resource/valve_english.txt": b"txt",
+            "shaders/fxc/unlitgeneric_vs20.vcs": b"vcs",
+        }, split=True)
+        trees = self.by_tree()
+        self.assertEqual(trees["resource/"].packs, {"pak01_dir.vpk": 2})
+        self.assertEqual(trees["shaders/"].packs, {"pak01_dir.vpk": 1})
+        self.assertTrue(trees["resource/"].found)
+        self.assertIn("pak01_dir.vpk: 2 entries", trees["resource/"].where())
+
+    def test_a_tree_that_is_nowhere_is_reported_as_absent(self):
+        vpk.build_vpk_v1(self.game / "pak01_dir.vpk",
+                         {"materials/dev/x.vtf": b"vtf"}, split=True)
+        trees = self.by_tree()
+        self.assertFalse(trees["resource/"].found)
+        self.assertEqual(trees["resource/"].where(), "absent")
+        self.assertTrue(trees["materials/"].found)
+
+    def test_loose_directories_are_named_by_their_path(self):
+        (self.game / "resource").mkdir()
+        (self.game / "resource" / "GameMenu.res").write_bytes(b"res")
+        trees = self.by_tree()
+        self.assertEqual(trees["resource/"].loose, ["left4dead/resource/"])
+        self.assertIn("loose: left4dead/resource/", trees["resource/"].where())
+
+    def test_the_game_directory_itself_works_as_root(self):
+        (self.game / "scripts").mkdir()
+        trees = self.by_tree(self.game)
+        self.assertEqual(trees["scripts/"].loose, ["scripts/"])
+
+    def test_cli_trees_says_the_files_are_content_not_code(self):
+        vpk.build_vpk_v1(self.game / "pak01_dir.vpk",
+                         {"materials/dev/x.vtf": b"vtf"}, split=True)
+        result = subprocess.run(
+            [sys.executable, "-m", "l4d1ctl", "content", "--trees", "--root", str(self.dir)],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("resource/", result.stdout)
+        self.assertIn("missing from both the loose directories and every pack: resource/",
+                      result.stdout)
+        self.assertIn("No engine change can produce these files", result.stdout)
