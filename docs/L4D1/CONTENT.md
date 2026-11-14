@@ -5,12 +5,19 @@ folder"; it is four depots plus the language ones, and they are easy to download
 one at a time without noticing. Three separate downloads in this project came out
 short for this reason, so the mapping is written down here.
 
+And a warning that cost one of those downloads: **the depot names are historical
+labels, not tables of contents.** Depot 501 is called "Left 4 Dead binaries" and is
+where the loose `resource/`, `scripts/`, `cfg/` client-side trees actually live —
+the ones whose absence was killing the boot in `Resource\GameMenu.res`. Whoever
+decided in 2008 that the VGUI layouts belonged with the client binary did not name
+it that way on SteamDB. Read the depot contents, not the label.
+
 ## The depots of app 500
 
 | Depot | Name | Size | What lands in `left4dead/` |
 | --- | --- | --- | --- |
-| 501 | Left 4 Dead binaries | ~289 MiB | `bin/`, the Windows/SDL executables and DLLs (not used by this port, which ships its own) |
-| 502 | Left 4 Dead **base** | ~3.58 GiB | `pak01_dir.vpk` + `pak01_000..059.vpk`, `maps/`, `materials/`, `models/`, `particles/`, `scenes/`, `media/`, `missions/`, `reslists/`, `gfx/`, and — on a normal install — the loose `resource/`, `scripts/`, `cfg/` trees |
+| 501 | Left 4 Dead binaries | ~289 MiB | `bin/` and the **loose client-side trees**: `resource/` (`GameMenu.res`, `*UIPanel.res`, `valve_english.txt`), `scripts/`, `cfg/`, and what ships beside them. Confirmed by extracting it after three downloads omitted it on the strength of its name. The Windows DLLs in here are *not* used — this port ships its own |
+| 502 | Left 4 Dead **base** | ~3.58 GiB | `pak01_dir.vpk` + `pak01_000..059.vpk`, `maps/`, `materials/`, `models/`, `particles/`, `scenes/`, `media/`, `missions/`, `reslists/`, `gfx/` — the assets, not the UI definitions |
 | 503 | Left 4 Dead client binary | — | the client executable |
 | 504 | Left 4 Dead **sound** | — | `sound/`: footsteps, weapons, infected, ambience |
 | 505… | Left 4 Dead **localisations** (505 french, …) | — | the per-language `resource/*_<lang>.txt` tables |
@@ -21,13 +28,14 @@ Consequences, in the order they surprise people:
   and map and no audio at all, and the engine log says nothing about it until a
   sound is played. (`modelsounds.cache` can sit in either; it is not a reliable
   signal of which depots you actually got.)
-* **`resource/`, `scripts/` and `cfg/` are not a depot of their own.** They ship
-  with the base depot, so their absence alongside a present `pak01_*.vpk` is an
-  incomplete download, not a depot-split — the two look identical in an engine log
-  and need opposite fixes.
-* **Language tables are separate depots.** `resource/valve_english.txt` comes with
-  the base depot for the default language, but a build whose `gameinfo.txt` asks
-  for a non-default language needs the matching depot or the UI has no strings.
+* **`resource/`, `scripts/` and `cfg/` come from 501, not 502.** A base-only
+  download therefore has every texture, model and map in the game and still dies at
+  `Resource/GameMenu.res`, because the UI definitions, the surface scripts and the
+  engine's cfg never arrived. This is the single most misleading split in the app:
+  the largest depot is the one that looks complete.
+* **Language tables are separate depots.** The default-language `resource/*_english.txt`
+  ships with 501, but a build whose `gameinfo.txt` asks for another language needs
+  the matching depot or the UI has no strings.
 * **`pak01.vpk` vs `pak01_*.vpk`**: the base depot ships 60 parts plus the tree.
   A hole in that numbering (e.g. no `pak01_048.vpk`) is a broken download, and
   `l4d1ctl vpk info` reports it by comparing the numbering rather than only the
