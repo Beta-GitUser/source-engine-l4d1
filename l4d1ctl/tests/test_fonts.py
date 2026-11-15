@@ -222,3 +222,59 @@ class FontSchemeTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertTrue(payload["vfont_only"])
         self.assertEqual(len(payload["fonts"]), 2)
+
+
+STRAY_TAIL = """Scheme
+{
+\tFonts
+\t{
+\t\tDefault
+\t\t{
+\t\t\t"1"
+\t\t\t{
+\t\t\t\t"name"\t\t"Tahoma"
+\t\t\t\t"tall"\t\t"16"
+\t\t\t}
+\t\t}
+\t\t"1"\t\t"name"
+\t\t"tall"\t\t"weight"
+\t\t"outline"
+\t}
+}
+"""
+
+
+class StrayNodeTests(unittest.TestCase):
+    """A font's own keys can land directly under Fonts; they must not count as fonts.
+
+    This is what the real sourcescheme.res does on the device: eleven fonts, then
+    "1", "name", "tall", "weight", "outline" as siblings. The file's braces balance
+    (177/177), so the reader has to stay right either way.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="fonts-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, True))
+        self.scheme = self.dir / "resource" / "sourcescheme.res"
+        self.scheme.parent.mkdir(parents=True)
+        self.scheme.write_text(STRAY_TAIL)
+
+    def test_stray_attribute_nodes_do_not_become_fonts(self):
+        report = fonts.read(self.dir)
+        self.assertEqual([f.key for f in report.fonts], ["Default"])
+
+    def test_the_strays_are_folded_into_the_font_above(self):
+        report = fonts.read(self.dir)
+        self.assertEqual(report.fonts[0].name, "Tahoma")
+        self.assertEqual(report.fonts[0].tall, "16")
+
+    def test_the_strays_are_still_reported(self):
+        report = fonts.read(self.dir)
+        self.assertEqual(sorted(report.unparsed_nodes),
+                         sorted(["1", "tall", "outline"]))
+
+    def test_trace_names_the_line_of_each_font(self):
+        report = fonts.read(self.dir)
+        rendered = "\n".join(fonts.render(report, trace=True))
+        self.assertIn("[line 5:", rendered)
+        self.assertIn("stray node", rendered)

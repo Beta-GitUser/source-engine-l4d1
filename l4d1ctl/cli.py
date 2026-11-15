@@ -544,7 +544,7 @@ def cmd_fonts(args: argparse.Namespace) -> int:
         }, indent=2))
         return 0 if report.parsed and not report.vfont_only else 1
 
-    for line in fonts.render(report):
+    for line in fonts.render(report, trace=args.trace):
         print(line)
     if not report.parsed:
         return 2
@@ -1061,6 +1061,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("fonts", help="what the UI scheme's fonts are, and whether they can load")
     p.add_argument("--root", help="game directory to read (default: the resolved one)")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--trace", action="store_true",
+                   help="show the source line of every font and of stray nodes")
     p.set_defaults(func=cmd_fonts)
 
     p = sub.add_parser("content", help="check the content for assets the engine asks for at boot")

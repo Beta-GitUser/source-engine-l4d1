@@ -60,6 +60,7 @@ class SchemeFont:
     custom: str = ""         # "custom" value: a custom font file
     tall: str = ""
     weight: str = ""
+    line: int = 0
     flags: Dict[str, str] = field(default_factory=dict)
 
     @property
@@ -88,6 +89,7 @@ class FontReport:
     error: str = ""
     custom_font_files: List[str] = field(default_factory=list)
     unparsed_nodes: List[str] = field(default_factory=list)
+    source_lines: List[str] = field(default_factory=list)
     fonts: List[SchemeFont] = field(default_factory=list)
     missing_files: List[str] = field(default_factory=list)
 
@@ -116,14 +118,30 @@ class FontReport:
 
 
 def find_scheme(root: Path) -> Optional[Path]:
-    """The scheme the engine will actually read, searching the usual spellings."""
+    """The scheme the engine will actually read, searching the usual spellings.
+
+    Lookup is case-insensitive on purpose: Android's shared storage is, so a file
+    called ``sourcescheme.res`` is ``SourceScheme.res`` to the engine, and a reader
+    that insists on the capital S would report nothing on the one platform this
+    port targets.
+    """
     root = Path(root).expanduser()
     for relative in SCHEME_FILES:
         candidate = root / relative
         if candidate.is_file():
             return candidate
-    # A game directory passed as the root, or one nested under it.
-    for candidate in sorted(root.glob("*/resource/*[Ss]cheme*.res")):
+
+    # Same names, any capitalisation, inside <game>/resource.
+    wanted = [name.split("/", 1)[1] for name in SCHEME_FILES if "/" in name]
+    for resource in [root / "resource"] + sorted(root.glob("*/resource")):
+        if not resource.is_dir():
+            continue
+        entries = {entry.name.lower(): entry for entry in resource.iterdir() if entry.is_file()}
+        for name in wanted:
+            found = entries.get(name.lower())
+            if found is not None:
+                return found
+    for candidate in sorted(root.glob("*/*/*[Ss]cheme*.res")):
         if candidate.is_file():
             return candidate
     return None
@@ -186,6 +204,27 @@ def _font_values(node: kv.KVNode) -> kv.KVNode:
     return node
 
 
+def _absorb(font: SchemeFont, node: kv.KVNode, key_lower: str) -> None:
+    """Fold a stray attribute node into the font it belongs to.
+
+    Never overwrite a value the font already has: the stray is the leftover, the
+    font's own block is the truth.
+    """
+    value = node.value or ""
+    if not value:
+        return
+    if key_lower == "name":
+        font.name = font.name or value
+    elif key_lower == "custom":
+        font.custom = font.custom or value
+    elif key_lower == "tall":
+        font.tall = font.tall or value
+    elif key_lower == "weight":
+        font.weight = font.weight or value
+    else:
+        font.flags.setdefault(key_lower, value)
+
+
 def read(root: Path) -> FontReport:
     """Parse the scheme and report every font the UI can ask for."""
     root = Path(root).expanduser()
@@ -198,7 +237,9 @@ def read(root: Path) -> FontReport:
 
     report.scheme = scheme
     try:
-        nodes = kv.load_file(scheme)
+        text = scheme.read_bytes().decode("utf-8", "replace")
+        report.source_lines = text.splitlines()
+        nodes = kv.loads(text)
     except (kv.KVParseError, OSError) as exc:
         report.error = f"{scheme}: {exc}"
         return report
@@ -212,12 +253,19 @@ def read(root: Path) -> FontReport:
         return report
 
     for child in block.children:
-        if child.key.isdigit() or child.key.strip().lower() in FONT_ATTRIBUTES:
-            # Unbalanced braces in the scheme put a font's insides here directly.
+        key_lower = child.key.strip().lower()
+        is_attribute = key_lower in FONT_ATTRIBUTES
+        is_index = child.key.strip().isdigit() and not child.children
+        if is_attribute or is_index:
+            # A font's own keys arriving directly under Fonts. Whatever the cause in
+            # the file, they belong to the font above them: attach them so the report
+            # is right, and keep the key so the oddity stays visible.
             report.unparsed_nodes.append(child.key)
+            if report.fonts:
+                _absorb(report.fonts[-1], child, key_lower)
             continue
         values = _font_values(child)
-        font = SchemeFont(key=child.key)
+        font = SchemeFont(key=child.key, line=child.line)
         font.name = values.get("name") if "name" in values else ""
         custom = values.find("custom")
         if custom is not None and custom.value:
@@ -251,7 +299,13 @@ def read(root: Path) -> FontReport:
     return report
 
 
-def render(report: FontReport, *, limit: int = 40) -> List[str]:
+def _raw_line(report: FontReport, line: int) -> str:
+    if 0 < line <= len(report.source_lines):
+        return report.source_lines[line - 1].strip()
+    return ""
+
+
+def render(report: FontReport, *, limit: int = 40, trace: bool = False) -> List[str]:
     lines: List[str] = []
     if not report.parsed:
         lines.append(report.error or "no scheme found")
@@ -274,16 +328,23 @@ def render(report: FontReport, *, limit: int = 40) -> List[str]:
             bits = [f"tall {font.tall or '?'}"]
             if font.weight:
                 bits.append(f"weight {font.weight}")
-            lines.append(f"  {font.key.ljust(width)}  {font.source}  ({', '.join(bits)})")
+            row = f"  {font.key.ljust(width)}  {font.source}  ({', '.join(bits)})"
+            if trace:
+                row += f"  [line {font.line}: {_raw_line(report, font.line)}]"
+            lines.append(row)
+        if trace:
+            for key in report.unparsed_nodes:
+                lines.append(f"  (stray node {key!r} under Fonts)")
         if len(report.fonts) > limit:
             lines.append(f"  ... and {len(report.fonts) - limit} more")
 
     if report.unparsed_nodes:
         lines.append("")
-        lines.append(f"{len(report.unparsed_nodes)} node(s) under Fonts were not font")
-        lines.append("entries (" + ", ".join(sorted(set(report.unparsed_nodes))[:6]) +
-                     "): the scheme's braces are unbalanced there. Harmless for this")
-        lines.append("report, but it means the block it belongs to is not being read.")
+        lines.append(f"{len(report.unparsed_nodes)} node(s) sitting directly under Fonts")
+        lines.append("were font attributes rather than fonts ("
+                     + ", ".join(sorted(set(report.unparsed_nodes))[:6]) + ").")
+        lines.append("They are folded into the font above them, so the counts here stay")
+        lines.append("right; use --trace to see the source line of each one.")
 
     lines.append("")
     if report.vfont_only:

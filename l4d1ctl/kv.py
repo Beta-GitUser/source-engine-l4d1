@@ -36,6 +36,7 @@ class KVNode:
     value: Optional[str] = None
     children: List["KVNode"] = field(default_factory=list)
     platform: Optional[str] = None
+    line: int = 0             # 1-based line of the key in the source text
 
     # -- structure ---------------------------------------------------------
     @property
@@ -174,28 +175,37 @@ def _escape(raw: str) -> str:
 class _Token:
     kind: str  # atom | open | close
     value: str = ""
+    line: int = 0
 
 
 def _tokenize(text: str) -> List[_Token]:
     tokens: List[_Token] = []
     pos = 0
     length = len(text)
+    line = 1
     while pos < length:
         match = _TOKEN_RE.match(text, pos)
         if match is None:
             raise KVParseError(f"unexpected character {text[pos]!r} at offset {pos}")
+        matched = match.group()
         pos = match.end()
         kind = match.lastgroup or ""
         if kind in ("ws", "comment"):
+            # Lines are carried so a caller can point at the source of a node it
+            # finds in an odd place, which is the only way to tell a broken file
+            # from a broken reader.
+            line += matched.count("\n")
             continue
+        token_line = line
+        line += matched.count("\n")
         if kind == "str":
-            tokens.append(_Token("atom", _unescape(match.group()[1:-1])))
+            tokens.append(_Token("atom", _unescape(matched[1:-1]), token_line))
         elif kind == "open":
-            tokens.append(_Token("open"))
+            tokens.append(_Token("open", "", token_line))
         elif kind == "close":
-            tokens.append(_Token("close"))
+            tokens.append(_Token("close", "", token_line))
         else:
-            tokens.append(_Token("atom", match.group()))
+            tokens.append(_Token("atom", matched, token_line))
     return tokens
 
 
@@ -224,7 +234,7 @@ def _parse_block(tokens: Sequence[_Token], pos: int, top: bool) -> tuple[List[KV
             pos += 1
             continue
 
-        node = KVNode(token.value)
+        node = KVNode(token.value, line=token.line)
         pos += 1
         if pos < len(tokens) and tokens[pos].kind == "open":
             node.children, pos = _parse_block(tokens, pos + 1, top=False)
