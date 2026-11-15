@@ -236,12 +236,21 @@ def _parse_block(tokens: Sequence[_Token], pos: int, top: bool) -> tuple[List[KV
 
         node = KVNode(token.value, line=token.line)
         pos += 1
+
+        # A platform conditional may sit between the key and what it introduces:
+        #     "UiBold" { "1" [$WIN32] { "name" "Tahoma" } "1" [$X360] { ... } }
+        # Reading it as the key's *value* is what made a block's contents land in its
+        # parent, so the conditional is consumed before asking what comes next.
+        while pos < len(tokens) and _is_platform_token(tokens[pos]):
+            node.platform = tokens[pos].value.strip("[]$")
+            pos += 1
+
         if pos < len(tokens) and tokens[pos].kind == "open":
             node.children, pos = _parse_block(tokens, pos + 1, top=False)
         elif pos < len(tokens) and tokens[pos].kind == "atom":
             node.value = tokens[pos].value
             pos += 1
-            if pos < len(tokens) and _is_platform_token(tokens[pos]):
+            while pos < len(tokens) and _is_platform_token(tokens[pos]):
                 node.platform = tokens[pos].value.strip("[]$")
                 pos += 1
         nodes.append(node)

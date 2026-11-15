@@ -7,6 +7,45 @@ existed in the game it is dressing. Getting to an L4D1-looking menu is therefore
 mostly making the newer framework tolerate the older layout, plus fonts, plus the
 background movie. It is not a rewrite.
 
+## What `resource/gamemenu.res` actually contains
+
+Not a panel layout. L4D1's main menu is a list of entries - label, command, and
+whether it only applies in game:
+
+```
+"GameMenu"
+{
+	"1" { "label" "#GameUI_GameMenu_ResumeGame" "command" "ResumeGame" "OnlyInGame" "1" }
+	...
+	"6" { "label" "#GameUI_GameMenu_FindServers" "command" "OpenServerBrowser" }
+	"7" { "label" "#GameUI_GameMenu_CreateServer" "command" "OpenCreateMultiplayerGameDialog" }
+	"8" { "label" "#GameUI_GameMenu_Achievements" "command" "OpenAchievementsDialog" }
+	"10" { "label" "#GameUI_GameMenu_Options" "command" "OpenOptionsDialog" }
+	"11" { "label" "#GameUI_GameMenu_Quit" "command" "Quit" }
+}
+```
+
+Nine entries, two of them (Resume / Disconnect) in-game only, one disabled spacer, and
+a commented-out `OpenSoloGame`. There is no `ControlName`, no `xpos`, no panel nesting:
+the menu builds its items itself and the file only decides which ones and in what
+order.
+
+**This tree already reads exactly that format.** `CBasePanel::RecursiveLoadGameMenu`
+takes `label`, `command` and an optional `name` per entry, passes the whole KeyValues
+to `CGameMenu::AddMenuItem`, and `CGameMenu::UpdateMenuItemState` honours
+`OnlyInGame` / `OnlyInReplay` / the VR keys. So no recreation is needed for the main
+menu: the entries, their order and their commands are L4D1's own.
+
+Two things this tree adds on top, both worth knowing:
+
+* a **`Console` item calling `OpenConsole`**, prepended to whatever the file lists -
+  the console entry point asked about earlier already exists in the main menu;
+* `OpenServerBrowser` if the file does not list it and the mod is not single player.
+
+Settings pages are the classic shape and match as well: `optionssubvideo.res` is
+`ControlName` / `fieldName` / `xpos` / `ypos` / `wide` / `tall` / `labelText` blocks,
+which is what this tree's control loader has always consumed.
+
 ## What is on screen
 
 Three pieces, none of them L4D1:

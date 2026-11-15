@@ -224,6 +224,42 @@ class FontSchemeTests(unittest.TestCase):
         self.assertEqual(len(payload["fonts"]), 2)
 
 
+# The real shape: the same resolution written once per platform, conditional between
+# the key and its block. Reading the conditional as a value put a font's insides in
+# its parent, which is what made the device report show fonts called "name"/"tall".
+SCHEME_CONDITIONAL = """Scheme
+{
+	Fonts
+	{
+		UiBold
+		{
+			"1"	[$WIN32]
+			{
+				"name"		"Tahoma"
+				"tall"		"12"
+				"weight"	"1000"
+			}
+			"1"	[$X360]
+			{
+				"name"		"Tahoma"
+				"tall"		"24"
+				"weight"	"2000"
+				"outline"	"1"
+			}
+		}
+		ChapterTitle	[$X360]
+		{
+			"1"
+			{
+				"name"		"Tahoma"
+				"tall"		"20"
+			}
+		}
+	}
+}
+"""
+
+
 STRAY_TAIL = """Scheme
 {
 \tFonts
@@ -242,6 +278,28 @@ STRAY_TAIL = """Scheme
 \t}
 }
 """
+
+
+class ConditionalBlockTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="fonts-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, True))
+        (self.dir / "resource").mkdir(parents=True)
+        (self.dir / "resource" / "sourcescheme.res").write_text(SCHEME_CONDITIONAL)
+
+    def test_a_conditional_before_a_block_does_not_flatten_it(self):
+        report = fonts.read(self.dir)
+        self.assertEqual([f.key for f in report.fonts], ["UiBold"])
+        self.assertEqual(report.unparsed_nodes, [])
+
+    def test_the_pc_block_is_the_one_read(self):
+        report = fonts.read(self.dir)
+        self.assertEqual(report.fonts[0].tall, "12")
+        self.assertEqual(report.fonts[0].weight, "1000")
+
+    def test_a_console_only_font_is_not_counted(self):
+        report = fonts.read(self.dir)
+        self.assertNotIn("ChapterTitle", [f.key for f in report.fonts])
 
 
 class StrayNodeTests(unittest.TestCase):

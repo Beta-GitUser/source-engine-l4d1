@@ -193,12 +193,21 @@ def _font_values(node: kv.KVNode) -> kv.KVNode:
     """The block that holds a font's settings.
 
     A scheme font looks like ``Default { "1" { "name" … } }`` - one child per
-    resolution - so the values are one level down. Some schemes skip that level.
+    resolution - so the values are one level down. Some schemes skip that level, and
+    L4D1 writes the same resolution twice, once per platform::
+
+        "UiBold" { "1" [$WIN32] { … } "1" [$X360] { … } }
+
+    so a block marked X360 is not the one this build uses.
     """
     if node.children and not any(key in node for key in ("name", "custom")):
-        for child in node.children:
+        usable = [child for child in node.children
+                  if (child.platform or "").upper() not in ("X360",)]
+        for child in usable:
             if any(key in child for key in ("name", "custom")):
                 return child
+        if usable:
+            return usable[0]
         if node.children:
             return node.children[0]
     return node
@@ -253,6 +262,10 @@ def read(root: Path) -> FontReport:
         return report
 
     for child in block.children:
+        if (child.platform or "").upper() == "X360":
+            # Written for the console build: this engine will never ask for it.
+            continue
+
         key_lower = child.key.strip().lower()
         is_attribute = key_lower in FONT_ATTRIBUTES
         is_index = child.key.strip().isdigit() and not child.children
@@ -271,6 +284,8 @@ def read(root: Path) -> FontReport:
         if custom is not None and custom.value:
             font.custom = custom.value
         font.tall = values.get("tall") if "tall" in values else ""
+        if (child.platform or "").upper() == "WIN32":
+            font.line = child.line
         weight = values.find("weight")
         if weight is not None and weight.value:
             font.weight = weight.value

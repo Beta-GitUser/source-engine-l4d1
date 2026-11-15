@@ -69,6 +69,27 @@ of the stages:
 So: stage 4 is real but irrelevant to text, and stage 3 is the one that matters.
 That is what the direct read in `FontDataHelper` fixes.
 
+## The reading bug that made this look simpler than it is
+
+L4D1's scheme writes one resolution per platform, with the conditional *between* the
+key and its block:
+
+```
+"UiBold"
+{
+	"1"	[$WIN32] { "name" "Tahoma" "tall" "12" ... }
+	"1"	[$X360]  { "name" "Tahoma" "tall" "24" ... }
+}
+```
+
+`l4d1ctl` read `[$WIN32]` as the key's *value*, so the block that followed was treated
+as a stray `{` and its contents (`name`, `tall`, `weight`, `outline`) landed in the
+parent - which is how a 36-font scheme was reported as 11 fonts plus five called
+`name`. Fixed in the KeyValues reader, with the shape above as a test: conditionals
+are consumed before deciding whether a key introduces a block, and `[$X360]` entries
+are skipped because this build never asks for them. Everything that reads Valve
+KeyValues - gameinfo, schemes, VPK manifests - benefits.
+
 ## Why it "works on HL2" and not here
 
 `vgui2/vgui_surfacelib/linuxfont.cpp` is **byte-identical to upstream** (`diff` = 0
