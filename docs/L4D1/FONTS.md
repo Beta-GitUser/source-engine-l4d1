@@ -69,6 +69,38 @@ of the stages:
 So: stage 4 is real but irrelevant to text, and stage 3 is the one that matters.
 That is what the direct read in `FontDataHelper` fixes.
 
+## Why it "works on HL2" and not here
+
+`vgui2/vgui_surfacelib/linuxfont.cpp` is **byte-identical to upstream** (`diff` = 0
+lines against `nillerusr/source-engine`). Nothing about fonts was touched by this
+fork, so "we barely changed GameUI" is exactly right and still does not help: the
+stock code is the problem.
+
+It has no fontconfig. `HAVE_FC` is defined nowhere in the build, so
+`TryFindFont()` takes its `#ifdef ANDROID` branch, which does this and nothing else:
+
+```c
+snprintf( fontFile, sizeof fontFile, "%s/files/dejavusans.ttf", getenv("APP_DATA_PATH") );
+return fontFile;                       // no existence check, no fallback, no fontconfig
+```
+
+That is a *fabricated* path. The string `Found font:` in the log therefore means only
+that `APP_DATA_PATH` is set — not that a font exists. On an install whose app package
+deposits those TTFs in `$APP_DATA_PATH/files/`, the same code works and HL2 draws
+text. On one where it does not, every one of the 1190 font requests resolves to a
+file that is not there, and the UI has no glyphs at all. Same engine, same GameUI,
+different packaging: that is the whole difference.
+
+So the fix is not in GameUI and not in the scheme. It is to stop trusting the
+fabricated path:
+
+1. `TryFindFont()` now checks `access( path, R_OK )` before answering, and falls back
+   to `/system/fonts` — Roboto, Noto, DroidSans, DroidSansMono — which every Android
+   has, including when the app ships no fonts at all. Announced once per variant, not
+   1190 times.
+2. If a file exists but cannot be opened, `FontDataHelper`'s direct read covers it and
+   prints `errno`, so "absent" and "unreadable" are distinguishable.
+
 ## The check that answers it without a build
 
 ```sh
