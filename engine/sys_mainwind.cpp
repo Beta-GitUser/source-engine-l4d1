@@ -1290,7 +1290,10 @@ void CGame::PlayStartupVideos( void )
 	}
 
 	if (!bNeedHealthWarning && !bEndGame && !bRecap && (CommandLine()->CheckParm("-dev") || CommandLine()->CheckParm("-novid") || CommandLine()->CheckParm("-allowdebug")))
+	{
+		Msg( "startup video: skipped by -dev/-novid/-allowdebug\n" );
 		return;
+	}
 
 	const char *pszFile = "media/StartupVids.txt";
 	if ( bEndGame )
@@ -1313,6 +1316,10 @@ void CGame::PlayStartupVideos( void )
 	
 	if ((buffer == NULL) || (vidFileLength == 0))
 	{
+		// The usual reason a port shows no intro: the game's content does not carry
+		// media/StartupVids.txt. It used to be silent, which made "the video does not
+		// play" indistinguishable from "the video failed".
+		Msg( "startup video: %s is missing or empty (filesize %d)\n", pszFile, vidFileLength );
 		return;
 	}
 
@@ -1343,6 +1350,8 @@ void CGame::PlayStartupVideos( void )
 		char localPath[MAX_PATH];
 
  		    g_pFileSystem->GetLocalPath( com_token, localPath, sizeof(localPath) );
+
+		Msg( "startup video: %s -> %s\n", com_token, localPath );
  		
 		PlayVideoAndWait( localPath, bNeedHealthWarning );
 		localPath[0] = 0; // just to make sure we don't play the same avi file twice in the case that one movie is there but another isn't.
@@ -1369,7 +1378,11 @@ void CGame::PlayVideoAndWait( const char *filename, bool bNeedHealthWarning )
 {
 	// do we have a filename and a video system, and not on a console?
 	if ( !filename || !filename[0] || g_pVideo == NULL )
+	{
+		Msg( "startup video: nothing to play ('%s', video system %s)\n",
+			 filename ? filename : "", g_pVideo ? "present" : "absent" );
 		return;
+	}
 
 	// is it the valve logo file?		
 	bool bIsValveLogo = ( Q_strstr( filename, "valve.") != NULL );
@@ -1400,6 +1413,8 @@ void CGame::PlayVideoAndWait( const char *filename, bool bNeedHealthWarning )
 	VideoResult_t status = 	g_pVideo->PlayVideoFileFullScreen( filename, "GAME", GetMainWindowPlatformSpecificHandle (),
 	                                                           m_width, m_height, m_iDesktopWidth, m_iDesktopHeight, videomode->IsWindowedMode(),
 	                                                           forcedMinTime, VideoPlaybackFlags::DEFAULT_FULLSCREEN_OPTIONS | VideoPlaybackFlags::FILL_WINDOW );
+
+	Msg( "startup video: PlayVideoFileFullScreen( %s ) -> result %d\n", filename, (int)status );
 
 	// Everything ok?
 	if ( status == VideoResult::SUCCESS )
