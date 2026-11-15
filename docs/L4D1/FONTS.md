@@ -122,6 +122,60 @@ fabricated path:
 2. If a file exists but cannot be opened, `FontDataHelper`'s direct read covers it and
    prints `errno`, so "absent" and "unreadable" are distinguishable.
 
+## What `engine-3.log` changed: the fallback itself was wrong
+
+The read path fix worked — `$APP_DATA_PATH/files/dejavusans.ttf` is not readable, so
+`TryFindFont()` moved on and named a system font instead:
+
+```
+[7.5381] vgui: '…/files/dejavusans.ttf' is not readable; using the system font /system/fonts/Roboto-Regular.ttf
+[7.6009] vgui: no readable font for 'Trade Gothic Bold' (tried …/files/dejavusans-bold.ttf and 3 system font(s))
+```
+
+The second line is the bug. The fallback list was **fixed**: `Roboto-Bold`,
+`Roboto-Medium`, `DroidSans-Bold`. This device has `Roboto-Regular.ttf` and
+`DroidSansMono.ttf` and **no bold face at all**, so every bold request — and
+`Trade Gothic Bold` is the menu's own font — still had nothing to open, and stayed
+blank while the regular text worked.
+
+A fixed list of names cannot be right, because what `/system/fonts` contains is the
+device's decision. The answer is to ask the directory:
+
+```
+vgui2/vgui_surfacelib/linuxfont.cpp
+  ScanSystemFontDir( bold, italic, mono )   // one opendir("/system/fonts"), cached per variant
+    ScoreSystemFont()                       // +4 right weight, +4 italic, +2 mono, +1 Roboto/NotoSans/DroidSans
+    rejects: non .ttf/.otf/.ttc, *emoji*, *color*, and (for a mono request) any non-mono face
+```
+
+Weight is scored, not required: on a device with no bold it still answers
+`Roboto-Regular.ttf`, so bold labels draw at regular weight instead of not drawing.
+A mono request never degrades to a proportional face — an italic Roboto is not a
+substitute for a fixed-width console font. Each variant is announced once, so the log
+says which file the UI is actually using, not 1190 times.
+
+Checked against two staged directories: a rich one (Roboto Regular/Italic/Bold/
+BoldItalic + DroidSansMono) picks each variant correctly, and a device-like one
+(Regular + Mono only) resolves all eight variants to a readable file.
+
+## The four `.vfont` failures are noise, and now say so
+
+`ERROR 2: UNABLE TO LOAD FONT FILE resource/HALFLIFE2.vfont` (also `HL2EP2`, `TG`,
+`TGB`) is FreeType's `FT_Err_Unknown_File_Format`: the bytes were **read fine** and
+rejected because `.vfont` is Valve's own bitmap-font container
+(`vgui2/vgui_surfacelib/BitmapFont.cpp`, magic `BITMAPFONT_ID`). Nothing is lost:
+
+* the scheme asks for a bitmap glyph set only where a font sets `"bitmap" "1"`
+  (`Scheme.cpp:914`), and in L4D1's `sourcescheme.res` that is exactly one font,
+  `GameUIButtons`, guarded by `[$X360]` and therefore skipped on this build;
+* `BitmapFontFiles` maps a single name, `Buttons`, to `materials/vgui/fonts/buttons_32.vbf`
+  — not to any of the four `.vfont` files;
+* the four are listed under `CustomFontFiles`, which is just a "load these" list, so
+  failing to load them changes nothing.
+
+`FontDataHelper` now short-circuits a `.vfont` with a line that says what it is,
+instead of a FreeType error number that reads like a fatal.
+
 ## The check that answers it without a build
 
 ```sh

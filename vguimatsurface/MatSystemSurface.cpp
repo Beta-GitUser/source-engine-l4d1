@@ -1999,6 +1999,20 @@ void *CMatSystemSurface::FontDataHelper( const char *pchFontName, int &size, con
 
 	if( fontFileName )
 	{
+		// A .vfont is Valve's own bitmap-font container, not a TrueType face, so FreeType
+		// answers FT_Err_Unknown_File_Format (2) for it. L4D1's scheme lists four of them
+		// under CustomFontFiles and the log reads "ERROR 2: UNABLE TO LOAD FONT FILE",
+		// which looks fatal and is not: no scheme font asks for a bitmap glyph set (the
+		// only one that does, GameUIButtons, is [$X360] only). Say what it is instead.
+		if ( const char *pExt = V_GetFileExtension( fontFileName ) )
+		{
+			if ( !Q_stricmp( pExt, "vfont" ) )
+			{
+				Msg( "vgui: '%s' is a legacy bitmap font, not a TrueType face; skipping\n", fontFileName );
+				return NULL;
+			}
+		}
+
 		// If we were given a fontFileName, then load that bugger and shove it in the cache.
 
 		// Just load the font data, decrypt in memory and register for this process

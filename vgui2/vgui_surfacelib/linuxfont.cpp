@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #ifdef ANDROID
+#include <dirent.h>	// opendir( "/system/fonts" )
 #include <unistd.h>	// access( R_OK )
 #endif
 #include <math.h>
@@ -428,36 +429,80 @@ static bool FontFileReadable( const char *path )
 	return path && path[ 0 ] && access( path, R_OK ) == 0;
 }
 
+// What /system/fonts actually holds varies per device: this one has Roboto-Regular
+// and DroidSansMono but no Roboto-Bold, which is why a fixed list of bold fallbacks
+// left every bold font unreadable and the whole menu wordless. Ask the directory.
+#define ANDROID_FONT_DIR "/system/fonts"
+
+static bool FontNameHas( const char *name, const char *needle )
+{
+	return Q_stristr( name, needle ) != NULL;
+}
+
+static int ScoreSystemFont( const char *name, bool bBold, bool bItalic, bool bMono )
+{
+	if ( !FontNameHas( name, ".ttf" ) && !FontNameHas( name, ".otf" ) && !FontNameHas( name, ".ttc" ) )
+		return -1;
+	if ( FontNameHas( name, "emoji" ) || FontNameHas( name, "color" ) )
+		return -1;	// no text glyphs
+	if ( bMono && !FontNameHas( name, "mono" ) && !FontNameHas( name, "courier" ) )
+		return -1;	// a proportional italic is not a substitute for a fixed-width face
+
+	int score = 1;
+	if ( bBold == FontNameHas( name, "bold" ) )
+		score += 4;
+	if ( bItalic && ( FontNameHas( name, "italic" ) || FontNameHas( name, "oblique" ) ) )
+		score += 4;
+	if ( !bItalic && ( FontNameHas( name, "italic" ) || FontNameHas( name, "oblique" ) ) )
+		score -= 2;
+	if ( bMono == FontNameHas( name, "mono" ) )
+		score += 2;
+	if ( FontNameHas( name, "roboto" ) || FontNameHas( name, "notosans" ) || FontNameHas( name, "droidsans" ) )
+		score += 1;
+	return score;
+}
+
+// Cached per (bold, italic, mono); the answer cannot change during a run.
+static const char *ScanSystemFontDir( bool bBold, bool bItalic, bool bMono )
+{
+	static char s_Best[ 8 ][ MAX_PATH ];
+	static bool s_bDone[ 8 ] = { false };
+	const int slot = ( bBold ? 4 : 0 ) | ( bItalic ? 2 : 0 ) | ( bMono ? 1 : 0 );
+	if ( s_bDone[ slot ] )
+		return s_Best[ slot ][ 0 ] ? s_Best[ slot ] : NULL;
+	s_bDone[ slot ] = true;
+
+	DIR *pDir = opendir( ANDROID_FONT_DIR );
+	if ( !pDir )
+		return NULL;
+
+	int bestScore = -1;
+	struct dirent *pEntry = NULL;
+	while ( ( pEntry = readdir( pDir ) ) != NULL )
+	{
+		const int score = ScoreSystemFont( pEntry->d_name, bBold, bItalic, bMono );
+		if ( score < 0 || score <= bestScore )
+			continue;
+
+		char candidate[ MAX_PATH ];
+		snprintf( candidate, sizeof( candidate ), ANDROID_FONT_DIR "/%s", pEntry->d_name );
+		if ( !FontFileReadable( candidate ) )
+			continue;
+
+		bestScore = score;
+		Q_strncpy( s_Best[ slot ], candidate, sizeof( s_Best[ slot ] ) );
+	}
+	closedir( pDir );
+
+	return s_Best[ slot ][ 0 ] ? s_Best[ slot ] : NULL;
+}
+
 static const char *AndroidAppDataPath()
 {
 	const char *appData = getenv( "APP_DATA_PATH" );
 	return appData ? appData : "/data/data/com.valvesoftware.source";
 }
 
-// Prefer what the app was supposed to install; if it is not readable, take the first
-// readable system font. The choice is announced once per font variant, not 1190 times.
-static const char *PickAndroidFontFile( const char *preferred, const char *const *fallbacks,
-										int count, int logSlot )
-{
-	if ( FontFileReadable( preferred ) )
-		return preferred;
-
-	for ( int i = 0; i < count; ++i )
-	{
-		if ( !FontFileReadable( fallbacks[ i ] ) )
-			continue;
-
-		static bool s_bLogged[ 8 ] = { false };
-		if ( logSlot >= 0 && logSlot < 8 && !s_bLogged[ logSlot ] )
-		{
-			s_bLogged[ logSlot ] = true;
-			Msg( "vgui: '%s' is not readable; using the system font %s\n",
-				 preferred, fallbacks[ i ] );
-		}
-		return fallbacks[ i ];
-	}
-	return NULL;
-}
 #endif
 
 char *TryFindFont(const char *winFontName, bool bBold, int italic)
@@ -468,103 +513,62 @@ char *TryFindFont(const char *winFontName, bool bBold, int italic)
 
 #ifdef ANDROID
 	const char *lang = cl_language.GetString();
+	const bool bMono = ( strcmp( winFontName, "Courier New" ) == 0 );
 
-	const char *fallbacks[ 6 ];
-	int nFallbacks = 0;
-	int logSlot = 0;
-
-	if( strcmp( winFontName, "Courier New") == 0 )
+	if ( bMono )
 	{
-		snprintf( fontFile, sizeof fontFile, "%s/files/LiberationMono-Regular.ttf",
-				  AndroidAppDataPath() );
-		logSlot = 1;
-		fallbacks[ nFallbacks++ ] = "/system/fonts/DroidSansMono.ttf";
-		fallbacks[ nFallbacks++ ] = "/system/fonts/RobotoMono-Regular.ttf";
-		fallbacks[ nFallbacks++ ] = "/system/fonts/CutiveMono.ttf";
-		fallbacks[ nFallbacks++ ] = "/system/fonts/Roboto-Regular.ttf";
+		snprintf( fontFile, sizeof fontFile, "%s/files/LiberationMono-Regular.ttf", AndroidAppDataPath() );
 	}
-	else if( strcmp(lang, "japanese") == 0 ||
-			 strcmp(lang, "koreana") == 0 ||
-			 strcmp(lang, "korean") == 0 ||
-			 strcmp(lang, "tchinese") == 0 ||
-			 strcmp(lang, "schinese") == 0 )
+	else if ( strcmp(lang, "japanese") == 0 ||
+			  strcmp(lang, "koreana") == 0 ||
+			  strcmp(lang, "korean") == 0 ||
+			  strcmp(lang, "tchinese") == 0 ||
+			  strcmp(lang, "schinese") == 0 )
 	{
 		// for chinese/japanese/korean
-		snprintf( fontFile, sizeof fontFile, "%s/files/DroidSansFallback.ttf",
-				  AndroidAppDataPath() );
-		logSlot = 2;
-		fallbacks[ nFallbacks++ ] = "/system/fonts/NotoSansCJK-Regular.ttc";
-		fallbacks[ nFallbacks++ ] = "/system/fonts/DroidSansFallback.ttf";
-		fallbacks[ nFallbacks++ ] = "/system/fonts/NotoSansSC-Regular.otf";
+		snprintf( fontFile, sizeof fontFile, "%s/files/DroidSansFallback.ttf", AndroidAppDataPath() );
 	}
-	else if( strcmp(lang, "thai") == 0 )
+	else if ( strcmp(lang, "thai") == 0 )
 	{
-		snprintf( fontFile, sizeof fontFile, "%s/files/Itim-Regular.otf",
-				  AndroidAppDataPath() );
-		logSlot = 3;
-		fallbacks[ nFallbacks++ ] = "/system/fonts/NotoSansThai-Regular.ttf";
-		fallbacks[ nFallbacks++ ] = "/system/fonts/DroidSansThai.ttf";
+		snprintf( fontFile, sizeof fontFile, "%s/files/Itim-Regular.otf", AndroidAppDataPath() );
 	}
 	else
 	{
 		fontName = "dejavusans";
 
-		if( bBold )
-		{
-			if( italic )
-				fontNamePost = "boldoblique";
-			else
-				fontNamePost = "bold";
-		}
-		else if( italic )
+		if ( bBold )
+			fontNamePost = italic ? "boldoblique" : "bold";
+		else if ( italic )
 			fontNamePost = "oblique";
 
-		if( fontNamePost )
+		if ( fontNamePost )
 			snprintf( fontFile, sizeof fontFile, "%s/files/%s-%s.ttf",
 					  AndroidAppDataPath(), fontName, fontNamePost );
 		else
 			snprintf( fontFile, sizeof fontFile, "%s/files/%s.ttf",
 					  AndroidAppDataPath(), fontName );
-
-		if( bBold && italic )
-		{
-			logSlot = 6;
-			fallbacks[ nFallbacks++ ] = "/system/fonts/Roboto-BoldItalic.ttf";
-			fallbacks[ nFallbacks++ ] = "/system/fonts/NotoSans-BoldItalic.ttf";
-		}
-		else if( bBold )
-		{
-			logSlot = 5;
-			fallbacks[ nFallbacks++ ] = "/system/fonts/Roboto-Bold.ttf";
-			fallbacks[ nFallbacks++ ] = "/system/fonts/NotoSans-Bold.ttf";
-			fallbacks[ nFallbacks++ ] = "/system/fonts/RobotoCondensed-Bold.ttf";
-		}
-		else if( italic )
-		{
-			logSlot = 7;
-			fallbacks[ nFallbacks++ ] = "/system/fonts/Roboto-Italic.ttf";
-			fallbacks[ nFallbacks++ ] = "/system/fonts/NotoSans-Italic.ttf";
-			fallbacks[ nFallbacks++ ] = "/system/fonts/Roboto-Regular.ttf";
-		}
-		else
-		{
-			logSlot = 4;
-			fallbacks[ nFallbacks++ ] = "/system/fonts/Roboto-Regular.ttf";
-			fallbacks[ nFallbacks++ ] = "/system/fonts/NotoSans-Regular.ttf";
-			fallbacks[ nFallbacks++ ] = "/system/fonts/DroidSans.ttf";
-			fallbacks[ nFallbacks++ ] = "/system/fonts/RobotoCondensed-Regular.ttf";
-		}
 	}
 
-	const char *chosen = PickAndroidFontFile( fontFile, fallbacks, nFallbacks, logSlot );
-	if( chosen )
+	if ( FontFileReadable( fontFile ) )
+		return fontFile;
+
+	const char *pSystemFont = ScanSystemFontDir( bBold, italic != 0, bMono );
+	if ( pSystemFont )
 	{
-		snprintf( fontFile, sizeof fontFile, "%s", chosen );
+		static bool s_bLoggedVariants[ 8 ] = { false };
+		const int slot = ( bBold ? 4 : 0 ) | ( italic ? 2 : 0 ) | ( bMono ? 1 : 0 );
+		if ( !s_bLoggedVariants[ slot ] )
+		{
+			s_bLoggedVariants[ slot ] = true;
+			Msg( "vgui: '%s' is not on this device; using the system font %s\n",
+				 fontFile, pSystemFont );
+		}
+		snprintf( fontFile, sizeof fontFile, "%s", pSystemFont );
 		return fontFile;
 	}
 
-	Msg( "vgui: no readable font for '%s' (tried %s and %d system font(s))\n",
-		 winFontName, fontFile, nFallbacks );
+	Msg( "vgui: no readable font for '%s' (tried %s and %s)\n",
+		 winFontName, fontFile, ANDROID_FONT_DIR );
 	return fontFile;
 #else
 	bool bRegularPostfix = false;
