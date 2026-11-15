@@ -34,6 +34,42 @@ A Bink 1 file is a container and a codec at once:
 None of that is documented by RAD, and Bink's decoder is licensed per title — the
 SDK is not redistributable, which is why no Source tree contains one.
 
+## Why the startup video does not play (and it is not the audio)
+
+`resource/media/StartupVids.txt` **does** exist in L4D1's content and lists
+`media/valve.bik` and `media/l4d_intro.bik`. So `CGame::PlayStartupVideos` reaches its
+play loop and calls `PlayVideoFileFullScreen`; the reason nothing appears is one layer
+further in:
+
+```cpp
+// video/video_bink/bink_video.cpp
+const VideoSystemFeature_t CBinkVideoSubSystem::DEFAULT_FEATURE_SET =
+        VideoSystemFeature::PLAY_VIDEO_FILE_IN_MATERIAL;      // and nothing else
+
+VideoResult_t CBinkVideoSubSystem::PlayVideoFileFullScreen( … )
+{
+    return SetResult( VideoResult::FEATURE_NOT_AVAILABLE );   // a stub
+}
+```
+
+The engine asks `ResolveToPlayableVideoFile()` for a system that supports
+`PLAY_VIDEO_FILE_FULL_SCREEN`; Bink does not claim the feature, so resolution fails
+before `CBinkMaterial::OpenMovie` is ever called - which is exactly what the boot log
+shows: `video_bink: connected` at start-up and no `OpenMovie` line anywhere after it.
+Nothing to do with `-nosound`, and nothing to do with the decoder: material playback
+works, fullscreen playback was never written.
+
+Result codes to expect in a boot log with the instrumentation from `522c2af`:
+`startup video: media/valve.bik -> <resolved path>`, then
+`PlayVideoFileFullScreen( … ) -> result N`, where `N` is `18` (`VIDEO_FILE_NOT_FOUND`)
+or `3` (`FEATURE_NOT_AVAILABLE`). Both mean the same thing here.
+
+Making the intro play means writing fullscreen playback: a material on a screen-sized
+quad, a frame pump that renders while the movie runs, and a key/touch way out of it.
+`video_quicktime/quicktime_video.cpp` has the shape of it. It is cosmetic work, and it
+sits behind the menu being usable - and behind Bink audio, since the movie would
+otherwise be silent anyway.
+
 ## How the engine consumes it
 
 `public/video/ivideoservices.h` defines `IVideoServices` / `IVideoSubSystem` /

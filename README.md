@@ -83,8 +83,9 @@ Where the boot actually stands (last on-device run):
 
 - content mounts, the menu resource tree loads, the surface manifest resolves;
 - **the main menu opens** with `-nosound`, which is Phase 1's exit criterion.
-  `-novid` is not needed: the startup video never runs here, because
-  `media/StartupVids.txt` is not in the content and the engine returns without a word;
+  `-novid` is not needed: the startup video cannot run, because `video_bink`
+  advertises only in-material playback and its fullscreen entry point is a stub that
+  returns `FEATURE_NOT_AVAILABLE` (see [`docs/L4D1/VIDEO.md`](docs/L4D1/VIDEO.md));
 - without `-nosound` the process *hangs* (not crashes) right after the audio driver
   module (`vaudio_minimp3`) loads. It is audio init, not video: no
   `CBinkMaterial::OpenMovie` line exists in that log;
