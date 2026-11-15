@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from . import (depot, doctor, fonts, gameinfo, gamemod, launch, mine, mods,
+from . import (depot, doctor, fonts, gameinfo, gamemod, launch, menu, mine, mods,
                preflight, contentaudit, sceneimage, selftest, steamid, steamlib,
                surfaceprops, vpk)
 from .paths import PortPaths, resolve_gamedir
@@ -551,6 +551,17 @@ def cmd_fonts(args: argparse.Namespace) -> int:
     return 1 if report.vfont_only else 0
 
 
+def cmd_menu(args: argparse.Namespace) -> int:
+    res = Path(args.res).expanduser()
+    source = Path(args.source).expanduser() if args.source else Path(__file__).resolve().parent.parent
+    report = menu.read(res, source)
+    for line in menu.render(report, limit=args.limit, trace=args.trace):
+        print(line)
+    if not report.parsed:
+        return 2
+    return 1 if report.unknown_controls else 0
+
+
 def cmd_content(args: argparse.Namespace) -> int:
     if args.root:
         root = Path(args.root).expanduser()
@@ -1064,6 +1075,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trace", action="store_true",
                    help="show the source line of every font and of stray nodes")
     p.set_defaults(func=cmd_fonts)
+
+    p = sub.add_parser("menu", help="dissect a GameUI .res layout and check its panel classes")
+    p.add_argument("res", help="path to the .res file")
+    p.add_argument("--source", default=None,
+                   help="source tree to check panel classes against (default: this checkout)")
+    p.add_argument("--limit", type=int, default=60)
+    p.add_argument("--trace", action="store_true")
+    p.set_defaults(func=cmd_menu)
 
     p = sub.add_parser("content", help="check the content for assets the engine asks for at boot")
     p.add_argument("--root", help="game directory to scan (default: the resolved one)")
