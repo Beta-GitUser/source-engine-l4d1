@@ -82,6 +82,87 @@ ILauncherMgr *g_pLauncherMgr = NULL;
 
 using namespace vgui;
 
+//-----------------------------------------------------------------------------
+// Boot diagnostics: is vgui drawing anything at all?
+//
+// "The menu is invisible" has two causes that look identical on a black screen:
+// nothing is painted, or labels are painted with a font that has no glyphs. They
+// need opposite fixes, so count what the surface is actually asked to draw and
+// print it on demand - from the input path, because taps are known to arrive
+// while paint is exactly what is in question. Cost: five ints and a few strcpy.
+//-----------------------------------------------------------------------------
+static int s_nVGuiPaints;			// PaintTraverseEx at the top level: one painted frame
+static int s_nVGuiFilledRects;		// DrawFilledRect that survived the alpha test
+static int s_nVGuiTexturedRects;	// DrawTexturedRect/SubRect that survived it
+static int s_nVGuiFontBinds;		// DrawSetTextFont
+static int s_nVGuiTextCalls;		// DrawPrintText
+static int s_nVGuiChars;			// characters across those calls
+
+static char s_szDrawnText[3][96];	// most recent strings, newest first
+static char s_szDrawnFont[3][48];	// and the font each was drawn in
+static int s_nDrawnSamples;
+
+static void RecordDrawnText( const wchar_t *text, int len, HFont font )
+{
+	char narrow[96];
+	int n = 0;
+	bool bPrintable = false;
+	for ( int i = 0; i < len && n < (int)sizeof( narrow ) - 1; ++i )
+	{
+		const wchar_t ch = text[i];
+		if ( ch > 32 )
+			bPrintable = true;
+		narrow[n++] = ( ch >= 32 && ch < 127 ) ? (char)ch : '?';
+	}
+	narrow[n] = 0;
+
+	// A run of spaces is not a label; reporting it would hide the real ones.
+	if ( !bPrintable )
+		return;
+
+	for ( int i = 2; i > 0; --i )
+	{
+		Q_strncpy( s_szDrawnText[i], s_szDrawnText[i-1], sizeof( s_szDrawnText[i] ) );
+		Q_strncpy( s_szDrawnFont[i], s_szDrawnFont[i-1], sizeof( s_szDrawnFont[i] ) );
+	}
+	Q_strncpy( s_szDrawnText[0], narrow, sizeof( s_szDrawnText[0] ) );
+
+	const char *pszFont = FontManager().GetFontName( font );
+	Q_strncpy( s_szDrawnFont[0], ( pszFont && pszFont[0] ) ? pszFont : "?", sizeof( s_szDrawnFont[0] ) );
+	++s_nDrawnSamples;
+}
+
+// Called from the touch path (vguimatsurface/Input.cpp) on every tap for the first
+// few taps: the answer arrives on the log, not on the screen.
+void VGuiDrawStats( const char *why )
+{
+	Msg( "vgui: draw stats (%s): %d painted frame(s), %d filled rect(s), %d textured rect(s), %d text call(s) in %d char(s), %d font bind(s)\n",
+		 why, s_nVGuiPaints, s_nVGuiFilledRects, s_nVGuiTexturedRects,
+		 s_nVGuiTextCalls, s_nVGuiChars, s_nVGuiFontBinds );
+
+	if ( s_nVGuiPaints == 0 )
+	{
+		Msg( "vgui:   vgui has never painted a frame: the menu is not being drawn to the screen at all, "
+			 "and no font, colour or material can fix that\n" );
+		return;
+	}
+
+	if ( s_nVGuiChars == 0 )
+	{
+		Msg( "vgui:   frames paint but no text reaches the surface: every label is being skipped before it is drawn\n" );
+		return;
+	}
+
+	for ( int i = 0; i < 3; ++i )
+	{
+		if ( !s_szDrawnText[i][0] )
+			break;
+		Msg( "vgui:   drawn text #%d in '%s': \"%s\"\n", i + 1, s_szDrawnFont[i], s_szDrawnText[i] );
+	}
+	if ( s_nDrawnSamples > 3 )
+		Msg( "vgui:   (%d text sample(s) recorded in total)\n", s_nDrawnSamples );
+}
+
 static bool g_bSpewFocus = false;
 
 class CVguiMatInfoVar : public IVguiMatInfoVar
@@ -1189,6 +1270,7 @@ void CMatSystemSurface::DrawFilledRect( int x0, int y0, int x1, int y1 )
 	// Don't even bother drawing fully transparent junk
 	if( m_DrawColor[3]!=0 )
 	{
+		++s_nVGuiFilledRects;
 		vgui::Vertex_t rect[2];
 		vgui::Vertex_t clippedRect[2];
 		InitVertex( rect[0], x0, y0, 0, 0 );
@@ -1619,6 +1701,8 @@ void CMatSystemSurface::DrawTexturedRect( int x0, int y0, int x1, int y1 )
 	if( m_DrawColor[3] == 0 )
 		return;
 
+	++s_nVGuiTexturedRects;
+
 	float s0, t0, s1, t1;
 	TextureDictionary()->GetTextureTexCoords( m_iBoundTexture, s0, t0, s1, t1 );
 
@@ -1648,6 +1732,8 @@ void CMatSystemSurface::DrawTexturedSubRect( int x0, int y0, int x1, int y1, flo
 	// Don't even bother drawing fully transparent junk
 	if( m_DrawColor[3] == 0 )
 		return;
+
+	++s_nVGuiTexturedRects;
 
 	float s0, t0, s1, t1;
 	TextureDictionary()->GetTextureTexCoords( m_iBoundTexture, s0, t0, s1, t1 );
@@ -2220,6 +2306,7 @@ void CMatSystemSurface::DrawSetTextFont(HFont font)
 {
 	Assert( g_bInDrawing );
 
+	++s_nVGuiFontBinds;
 	m_hCurrentFont = font;
 }
 
@@ -2474,6 +2561,12 @@ void CMatSystemSurface::DrawPrintText(const wchar_t *text, int iTextLen, FontDra
 
 	if (!m_hCurrentFont)
 		return;
+
+	// Counted before the glyph loop: the question this answers is whether labels
+	// reach the surface, not how many of their glyphs survive it.
+	++s_nVGuiTextCalls;
+	s_nVGuiChars += iTextLen;
+	RecordDrawnText( text, iTextLen, m_hCurrentFont );
 
 	int x = m_pDrawTextPos[0] + m_nTranslateX;
 	int y = m_pDrawTextPos[1] + m_nTranslateY;
@@ -3269,6 +3362,7 @@ void CMatSystemSurface::PaintTraverseEx(VPANEL panel, bool paintPopups /*= false
 	{
 		// only set the 2d ortho mode once
 		bTopLevelDraw = true;
+		++s_nVGuiPaints;
 		StartDrawing();
 
 		// clear z + stencil buffer

@@ -72,6 +72,32 @@ Failed to load resource/UI/customchat.res
 Each line is the same shape: a TF2/HL2-era name that L4D1 never shipped, or a
 panel class that L4D1's *game code* registers and we do not.
 
+## Is any of it drawn? (`vgui: draw stats`)
+
+The panel tree proves the menu *exists*. It says nothing about whether a pixel of it
+reached the screen, and the two ways to get a black screen — "vgui never painted" and
+"vgui painted, but every label was skipped" — need opposite fixes. So the tap handler
+prints what the surface was actually asked to draw, for the first six taps:
+
+```
+vgui: draw stats (after tap 1): 3 painted frame(s), 12 filled rect(s), 0 textured rect(s), 4 text call(s) in 26 char(s), 4 font bind(s)
+vgui:   drawn text #1 in 'Trade Gothic Bold': "#GameUI_GameMenu_Quit"
+vgui:   drawn text #2 in 'Trade Gothic Bold': "#GameUI_GameMenu_Options"
+```
+
+Three verdicts, three different bugs:
+
+| The line says | It means |
+| --- | --- |
+| `0 painted frame(s)` | `CMatSystemSurface::PaintTraverseEx` never ran at the top level: the engine is not drawing vgui at all (present/activation order). No font, colour or material can fix this one |
+| frames > 0, `0 text call(s)` | panels paint, but no string reaches the surface: layout, visibility or an early-out — still not the font |
+| text calls > 0 | labels are drawn, and the samples name the font they are drawn in. A blank screen is then colour, material or compositing, and the sample says which font to suspect first |
+
+The counters only move when a draw survives its alpha test and a string survives the
+"no current font" early-out, so `12 filled rect(s)` means twelve quads were emitted,
+not twelve were attempted. The line is printed from the touch path on purpose: taps
+are known to arrive, while "does paint happen" is exactly the open question.
+
 ## What L4D1's own menu is (and why this is cheaper than it looks)
 
 L4D1 keeps the **classic GameUI main menu** — the same code family as retail HL2's,

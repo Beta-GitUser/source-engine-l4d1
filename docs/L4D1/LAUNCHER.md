@@ -11,6 +11,21 @@ The Python side is the reference implementation; the C++ side is what actually
 runs at startup. `launch.py` and `portcfg.cpp` implement the same rules — if you
 change one, change the other (their tests are in the same PR for that reason).
 
+### The Android app is a third piece, and it is not where the fonts live
+
+The APK (repo `srceng-android-l4d1`) is Java: `LauncherActivity` draws its settings
+with ordinary Android `TextView`/`Button` widgets in system fonts, then hands the
+engine an argv. It ships **no font files at all** — not one `.ttf` or `.vfont` — so
+nothing in the app can leave the in-engine UI wordless, and `LauncherActivity` is a
+separate activity: it is not an overlay and paints nothing over SDL's surface.
+
+What the app *does* contribute is one search path and one default argument:
+
+| Contribution | Where | Consequence |
+| --- | --- | --- |
+| `assets/extras_dir.vpk` (25 MB, 65 entries) extracted to `$APP_DATA_PATH`, mounted through `EXTRAS_VPK_PATH` as both `PLATFORM` and `GAME` | `ValveActivity2.initNatives`, `public/filesystem_init.cpp:618` | supplies `materials/vgui/touch/*` (30 materials), `resource/optionssubtouch.res` and five `shaders/fxc/*.vcs` blobs — touch controls and shaders, again no fonts |
+| default argv `-console` | `res/layout/activity_launcher.xml` (`edit_cmdline`) | the engine starts with the console open, which is why `GameConsole` is in the panel tree at boot before anyone taps |
+
 ---
 
 ## `l4d1ctl` reference

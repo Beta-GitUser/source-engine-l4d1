@@ -415,6 +415,9 @@ static void DumpVisiblePanels( vgui::VPANEL parent, int depth, int &budget )
 	}
 }
 
+// Implemented in MatSystemSurface.cpp: counts what the surface was asked to draw.
+void VGuiDrawStats( const char *why );
+
 static void DumpPanelTree( const char *why )
 {
 	int budget = 120;
@@ -509,6 +512,17 @@ bool InputHandleInputEvent( const InputEvent_t &event )
 				char why[64];
 				snprintf( why, sizeof( why ), "after tap %d", s_nFingerDowns );
 				DumpPanelTree( why );
+			}
+
+			// The panel tree says what exists; it cannot say whether any of it was
+			// drawn. Two more taps of "what did the surface actually draw" separate
+			// "never paints" from "paints but every label is skipped", which look
+			// exactly the same on a black screen and need different fixes.
+			if ( s_nFingerDowns <= 6 )
+			{
+				char why[64];
+				snprintf( why, sizeof( why ), "after tap %d", s_nFingerDowns );
+				VGuiDrawStats( why );
 			}
 		}
 		return true;
