@@ -34,6 +34,38 @@ A Bink 1 file is a container and a codec at once:
 None of that is documented by RAD, and Bink's decoder is licensed per title — the
 SDK is not redistributable, which is why no Source tree contains one.
 
+## What actually works, checked against the code
+
+| Capability | State | Where |
+| --- | --- | --- |
+| Module builds and ships as a separate `.so` | yes | `video/video_bink/wscript`, CI asserts no unresolved `av*` symbols in it |
+| Container + codec open | yes | `CBinkMaterial::OpenMovie` → `avformat_open_input` on `GetLocalPath()`, `avformat_find_stream_info` |
+| Video decode | yes | `Update()` → `av_read_frame` / `avcodec_send_packet` / `avcodec_receive_frame` |
+| YUV → RGB | yes | `yuv420_rgb24_std` from `yuv_rgb.c` |
+| Upload into a material | yes | `m_Texture->Download()` each frame, procedural texture + material |
+| Playback inside a material | yes, and reachable | `game/client/vgui_video.cpp`, `vgui_video_player.cpp`, `engine/modelloader.cpp`, `spritemodel.cpp` all call `CreateVideoMaterial` |
+| Playback fullscreen (startup videos, menu movies) | **no** | `CBinkVideoSubSystem::PlayVideoFileFullScreen` returns `FEATURE_NOT_AVAILABLE`; only `PLAY_VIDEO_FILE_IN_MATERIAL` is advertised |
+| Audio track | **no** | `m_bHasAudio = false`, `SetVolume()` → `AUDIO_ERROR_OCCURED`, `CreateMovieAudioContext` under `#if 0` |
+
+The decoder itself has never run on a device: no boot log contains a
+`CBinkMaterial::OpenMovie` line, because nothing asks for a movie - the only thing that
+asks is `PlayStartupVideos`, and that goes down the fullscreen path that does not
+exist. So "Bink works" is code-review confidence, not evidence, until something calls
+`CreateVideoMaterial`.
+
+`video_bink_selftest`, added for exactly that, exercises it from the console:
+
+```
+video_bink_selftest                  # media/l4d_intro.bik
+video_bink_selftest media/valve.bik
+```
+
+It prints the opened container (streams, audio track count, duration), the material's
+frame size, then how many `Update()` calls ran and the last result code. A pass looks
+like `material ok, 1280x720, …` followed by `N update(s) … last result 0`. A failure
+names the stage: `CreateVideoMaterial failed`, `StartVideo failed`, or
+`Could not open source file … (looked for …)`.
+
 ## Why the startup video does not play (and it is not the audio)
 
 `resource/media/StartupVids.txt` **does** exist in L4D1's content and lists

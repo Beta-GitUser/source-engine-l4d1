@@ -62,6 +62,7 @@
 #include "matchmaking.h"
 #include "sv_main.h"
 #include "video/ivideoservices.h"
+#include "tier1/convar.h"
 #include "sys.h"
 #include "materialsystem/imaterial.h"
 
@@ -1369,6 +1370,62 @@ void CGame::PlayStartupVideos( void )
 
 #endif // SWDS
 }
+
+//-----------------------------------------------------------------------------
+// Purpose: Exercise the Bink decoder on this device without needing a screenful of
+//          video. Nothing in a boot asks for a movie (the startup path is
+//          fullscreen, which this video module does not implement), so this is the
+//          only way to know whether decode, YUV conversion and texture upload work
+//          before the menu is usable enough to show a video panel.
+//
+//  video_bink_selftest             - decodes media/l4d_intro.bik
+//  video_bink_selftest <path.bik>  - decodes the named file
+//-----------------------------------------------------------------------------
+CON_COMMAND( video_bink_selftest, "Decode a .bik through the video subsystem and report what came out" )
+{
+	if ( !g_pVideo )
+	{
+		Msg( "video_bink_selftest: no video services loaded\n" );
+		return;
+	}
+
+	const char *pszFile = ( args.ArgC() > 1 ) ? args.Arg( 1 ) : "media/l4d_intro.bik";
+	Msg( "video_bink_selftest: opening '%s'\n", pszFile );
+
+	IVideoMaterial *pMaterial = g_pVideo->CreateVideoMaterial( "selftest_material", pszFile, "GAME" );
+	if ( !pMaterial )
+	{
+		Msg( "video_bink_selftest: CreateVideoMaterial failed, last result %d\n", (int)g_pVideo->GetLastResult() );
+		return;
+	}
+
+	int wide = 0, tall = 0;
+	pMaterial->GetVideoImageSize( &wide, &tall );
+	Msg( "video_bink_selftest: material ok, %dx%d, duration %.2fs, frames %d\n",
+		 wide, tall, pMaterial->GetVideoDuration(), pMaterial->GetFrameCount() );
+
+	if ( !pMaterial->StartVideo() )
+	{
+		Msg( "video_bink_selftest: StartVideo failed, last result %d\n", (int)g_pVideo->GetLastResult() );
+	}
+	else
+	{
+		int nUpdates = 0;
+		const double flStart = Plat_FloatTime();
+		while ( nUpdates < 240 && !pMaterial->IsFinishedPlaying() && ( Plat_FloatTime() - flStart ) < 10.0f )
+		{
+			pMaterial->Update();
+			++nUpdates;
+		}
+
+		Msg( "video_bink_selftest: %d update(s) in %.2fs, finished %d, last result %d\n",
+			 nUpdates, Plat_FloatTime() - flStart,
+			 pMaterial->IsFinishedPlaying() ? 1 : 0, (int)g_pVideo->GetLastResult() );
+	}
+
+	g_pVideo->DestroyVideoMaterial( pMaterial );
+}
+
 
 //-----------------------------------------------------------------------------
 // Purpose: Plays a video until the video completes or ESC is pressed
