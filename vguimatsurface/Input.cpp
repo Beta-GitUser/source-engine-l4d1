@@ -25,6 +25,8 @@
 #include "tier0/dbg.h"
 #include "../vgui2/src/vgui_key_translation.h"
 #include <vgui/IInputInternal.h>
+#include <vgui_controls/Controls.h>	// ipanel()
+#include <stdio.h>					// snprintf
 #include "tier0/icommandline.h"
 #ifdef _X360
 #include "xbox/xbox_win32stubs.h"
@@ -371,6 +373,59 @@ static vgui::MouseCode ButtonCodeToMouseCode( ButtonCode_t buttonCode )
 
 
 //-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+// Prints what vgui currently has on screen.
+//
+// "I tapped and something covered the socials, but I cannot see anything" is a
+// question about the panel tree, not about input: which panels are visible, what are
+// they called, and how big are they. Without this the only options are guessing which
+// dialog opened or reading a screenshot. Depth-limited and line-limited so a boot log
+// stays readable.
+//-----------------------------------------------------------------------------
+static void DumpVisiblePanels( vgui::VPANEL parent, int depth, int &budget )
+{
+	if ( !parent || budget <= 0 || depth > 4 )
+		return;
+
+	vgui::IPanel *ip = vgui::ipanel();
+	const int nChildren = ip->GetChildCount( parent );
+	for ( int i = 0; i < nChildren && budget > 0; ++i )
+	{
+		vgui::VPANEL child = ip->GetChild( parent, i );
+		if ( !child || !ip->IsVisible( child ) )
+			continue;
+
+		--budget;
+
+		int x, y, wide, tall;
+		ip->GetPos( child, x, y );
+		ip->GetSize( child, wide, tall );
+
+		const char *name = ip->GetName( child );
+		const char *cls = ip->GetClassName( child );
+
+		Msg( "vgui: %*s%s [%s] %d,%d %dx%d%s\n",
+			 depth * 2, "",
+			 ( name && name[0] ) ? name : "(unnamed)",
+			 ( cls && cls[0] ) ? cls : "?",
+			 x, y, wide, tall,
+			 ip->IsPopup( child ) ? "  popup" : "" );
+
+		DumpVisiblePanels( child, depth + 1, budget );
+	}
+}
+
+static void DumpPanelTree( const char *why )
+{
+	int budget = 120;
+	Msg( "vgui: visible panels (%s)\n", why );
+	DumpVisiblePanels( g_MatSystemSurface.GetEmbeddedPanel(), 0, budget );
+	if ( budget <= 0 )
+		Msg( "vgui:   ... truncated\n" );
+}
+
+
+//-----------------------------------------------------------------------------
 // Handles an input event, returns true if the event should be filtered
 // from the rest of the game
 //-----------------------------------------------------------------------------
@@ -437,16 +492,24 @@ bool InputHandleInputEvent( const InputEvent_t &event )
 			// event -> input system queue -> CGame::DispatchInputEvent -> here, and a
 			// menu that ignores taps is either this line missing from the log, or the
 			// panel having nothing hittable where the finger landed.
-			static bool s_bLoggedFirstFinger = false;
-			if ( !s_bLoggedFirstFinger )
-			{
-				s_bLoggedFirstFinger = true;
+			static int s_nFingerDowns = 0;
+			if ( s_nFingerDowns == 0 )
 				Msg( "vgui: first touch at (%d,%d) of %dx%d\n", x, y, w, h );
-			}
+			s_nFingerDowns++;
 
 			g_pIInput->UpdateCursorPosInternal( x, y );
 			g_pIInput->SetMouseCodeState( MOUSE_LEFT, vgui::BUTTON_PRESSED );
 			g_pIInput->InternalMousePressed( MOUSE_LEFT );
+
+			// After the press, not before it: whatever the tap just opened is now in
+			// the tree. Three dumps are enough to see a menu appear and a dialog land
+			// on top of it, and short enough to read in a log.
+			if ( s_nFingerDowns <= 3 )
+			{
+				char why[64];
+				snprintf( why, sizeof( why ), "after tap %d", s_nFingerDowns );
+				DumpPanelTree( why );
+			}
 		}
 		return true;
 	case IE_FingerUp:
