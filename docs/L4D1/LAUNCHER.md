@@ -255,3 +255,46 @@ Notes:
   Steam session; it is not a cheat toggle.
 * The launcher logs the resolved command line (`launcher: ...`) on every start —
   the first thing to check in a bug report.
+
+### `+commands` on the command line actually run now
+
+Retail turns the command line's `+parms` into console commands at startup through
+`stuffcmds` (`engine/cmd.cpp`). This port never called it, so an argv like
+`+map l4d_hospital01_apartment` was parsed into `CommandLine()` and then forgotten:
+the engine booted into the menu and said nothing, which reads exactly like "the map is
+missing". `Host_StuffCommandLineCommandsOnce()` (`engine/host.cpp`) now stuffs them
+into the command buffer once, on the first frame, right before the ordinary
+`Cbuf_Execute()` — after the game DLL and every console command exist, so they behave
+like typed console commands.
+
+Two consequences:
+
+* **Going straight into a level works.** Put the map in the app's command-line field,
+  or in `port.cfg`:
+
+  ```kv
+  extra_args  "+map l4d_hospital01_apartment"
+  ```
+
+  ```sh
+  # or, without touching the app: /data/user/0/com.valvesoftware.source/port.cfg
+  echo '"port" { game "left4dead" extra_args "+map l4d_hospital01_apartment" console "0" }' \
+      > ~/port.cfg
+  ```
+
+* **`+exec l4d1_identity.cfg`**, which the launcher has always appended, now executes
+  too — the identity config stops being decorative.
+
+`+map` is checked before it is queued, because `map` itself says nothing until it has
+already torn the menu down. Three log lines tell the whole story:
+
+```
+port: +map 'l4d_hospital01_apartment': found maps/l4d_hospital01_apartment.bsp (12345678 bytes), starting it
+port: +map 'x': maps/x.bsp is on no search path - not starting it
+port: no +commands on the command line
+```
+
+If the first line appears and nothing loads, the BSP was found and the failure is
+after it — look for `---- Host_NewGame ----` and whatever the server says next. If the
+second appears, the map is genuinely not in the game dir or its VPK, and the path in
+the line is the one to check.

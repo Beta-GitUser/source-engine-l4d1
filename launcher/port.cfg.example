@@ -5,7 +5,9 @@
 "port"
 {
 	game		"left4dead"
-	extra_args	"-novid -console -nouserclip"
+	// -commands here are real console commands (engine/host.cpp, first frame).
+	// "+map l4d_hospital01_apartment" boots straight into a level instead of the menu.
+	extra_args	"-novid -nouserclip"
 	identity_cfg	"l4d1_identity.cfg"
 	player_name	"Player"
 

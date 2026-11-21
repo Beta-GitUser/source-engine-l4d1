@@ -3048,6 +3048,101 @@ static ConVar host_Sleep( "host_sleep", "0", FCVAR_CHEAT, "Force the host to sle
 extern ConVar sv_alternateticks;
 #define LOG_FRAME_OUTPUT 0
 
+//-----------------------------------------------------------------------------
+// Command-line "+commands" ("+map x", "+exec file", "+connect ip").
+//
+// Retail turns these into console commands at startup through "stuffcmds"
+// (engine/cmd.cpp), and that is how a launch goes straight into a level. This port
+// never calls stuffcmds: the argv the launcher builds reaches CommandLine() and stops
+// there, so "+map l4d_hospital01_apartment" booted into the menu and said nothing
+// about it. Stuff them into the command buffer once, on the first frame, when the
+// game DLL and every console command exist.
+//
+// "+map" is checked before it is queued, because `map` stays quiet until it has
+// already torn the menu down: naming the .bsp it looked for turns "nothing happens"
+// into a path.
+//-----------------------------------------------------------------------------
+static void Host_StuffCommandLineCommandsOnce()
+{
+	static bool s_bStuffed = false;
+	if ( s_bStuffed )
+		return;
+	s_bStuffed = true;
+
+	char szCommands[4096];
+	szCommands[0] = 0;
+	int nLen = 0;
+
+	// Same rule as stuffcmds: a -parm and its value are skipped, a +parm and its value
+	// become a command. arg 0 is the executable.
+	for ( int i = 1; i < CommandLine()->ParmCount(); ++i )
+	{
+		const char *pszParm = CommandLine()->GetParm( i );
+		if ( !pszParm || !pszParm[ 0 ] )
+			continue;
+
+		if ( pszParm[ 0 ] == '-' )
+		{
+			if ( CommandLine()->ParmValueByIndex( i ) )
+				++i;
+			continue;
+		}
+
+		if ( pszParm[ 0 ] != '+' )
+			continue;
+
+		const char *pszValue = CommandLine()->ParmValueByIndex( i );
+		if ( pszValue )
+			++i;
+
+		if ( !Q_stricmp( pszParm + 1, "map" ) )
+		{
+			if ( !pszValue || !pszValue[ 0 ] )
+			{
+				Warning( "port: +map has no map name; ignoring it\n" );
+				continue;
+			}
+
+			char szMapFile[MAX_PATH];
+			Q_snprintf( szMapFile, sizeof( szMapFile ), "maps/%s.bsp", pszValue );
+			if ( !g_pFileSystem->FileExists( szMapFile ) )
+			{
+				Warning( "port: +map '%s': %s is on no search path - not starting it\n",
+						 pszValue, szMapFile );
+				continue;
+			}
+
+			Msg( "port: +map '%s': found %s (%d bytes), starting it\n",
+				 pszValue, szMapFile, (int)g_pFileSystem->Size( szMapFile ) );
+		}
+		else
+		{
+			Msg( "port: command line: %s%s%s\n",
+				 pszParm + 1, pszValue ? " " : "", pszValue ? pszValue : "" );
+		}
+
+		if ( nLen >= (int)sizeof( szCommands ) - 2 )
+		{
+			Warning( "port: the command line is too long; the rest is dropped\n" );
+			break;
+		}
+
+		if ( pszValue )
+			nLen += Q_snprintf( szCommands + nLen, sizeof( szCommands ) - nLen, "%s %s\n", pszParm + 1, pszValue );
+		else
+			nLen += Q_snprintf( szCommands + nLen, sizeof( szCommands ) - nLen, "%s\n", pszParm + 1 );
+	}
+
+	if ( nLen <= 0 )
+	{
+		Msg( "port: no +commands on the command line\n" );
+		return;
+	}
+
+	// Run by the Cbuf_Execute that follows in this same frame.
+	Cbuf_InsertText( szCommands );
+}
+
 void _Host_RunFrame (float time)
 {
 	MDLCACHE_COARSE_LOCK_(g_pMDLCache);
@@ -3146,6 +3241,10 @@ void _Host_RunFrame (float time)
 		tmZone( TELEMETRY_LEVEL0, TMZF_NONE, "_Host_RunFrame" );
 
 		g_HostTimes.StartFrameSegment( FRAME_SEGMENT_CMD_EXECUTE );
+
+		// The command line's +commands, once. Inserted here so the ordinary
+		// Cbuf_Execute below runs them exactly like typed console commands.
+		Host_StuffCommandLineCommandsOnce();
 
 		// process console commands
 		Cbuf_Execute ();
